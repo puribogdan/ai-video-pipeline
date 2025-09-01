@@ -1,0 +1,8 @@
+__pycache__/
+.venv/
+.env
+uploads/
+media/
+*.pyc
+other_audio
+old_files

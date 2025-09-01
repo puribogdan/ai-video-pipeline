@@ -1,0 +1,601 @@
+{
+  "audio_file": "E:\\UpWork\\Testing\\ai-video-pipeline\\audio_input\\input.mp3",
+  "transcript": "There you go. And they said, thank you. And they walked next up. They went on the boat and then sailed to Pumpkin Island. Pumpkin Island was quite a pump amazing. And they went to a pumpkin shop where there were lots of pumpkins. They bought one rainbow pumpkin. And the next step in the boat, they said, set off to the Nori Island. The Nori Island was quite quite quite good. They went, say, bought some nori, and ate all the stuff they had. And drink the smoothie. Lick the lollipop. Make the pumpkin into pumpkin pie. And even ate the mori. They ate everything they had and swam in the beach and came back home. The and",
+  "words": [
+    {
+      "word": "there",
+      "start": 0.48,
+      "end": 0.79999995
+    },
+    {
+      "word": "you",
+      "start": 0.79999995,
+      "end": 0.96
+    },
+    {
+      "word": "go",
+      "start": 0.96,
+      "end": 1.46
+    },
+    {
+      "word": "and",
+      "start": 1.92,
+      "end": 2.1599998
+    },
+    {
+      "word": "they",
+      "start": 2.1599998,
+      "end": 2.32
+    },
+    {
+      "word": "said",
+      "start": 2.32,
+      "end": 2.82
+    },
+    {
+      "word": "thank",
+      "start": 3.4399998,
+      "end": 3.84
+    },
+    {
+      "word": "you",
+      "start": 3.84,
+      "end": 4.34
+    },
+    {
+      "word": "and",
+      "start": 4.56,
+      "end": 4.72
+    },
+    {
+      "word": "they",
+      "start": 4.72,
+      "end": 5.12
+    },
+    {
+      "word": "walked",
+      "start": 5.12,
+      "end": 5.6
+    },
+    {
+      "word": "next",
+      "start": 5.6,
+      "end": 6.08
+    },
+    {
+      "word": "up",
+      "start": 6.08,
+      "end": 6.58
+    },
+    {
+      "word": "they",
+      "start": 8.24,
+      "end": 8.639999
+    },
+    {
+      "word": "went",
+      "start": 8.639999,
+      "end": 8.96
+    },
+    {
+      "word": "on",
+      "start": 8.96,
+      "end": 9.2
+    },
+    {
+      "word": "the",
+      "start": 9.2,
+      "end": 9.36
+    },
+    {
+      "word": "boat",
+      "start": 9.36,
+      "end": 9.86
+    },
+    {
+      "word": "and",
+      "start": 9.92,
+      "end": 10.16
+    },
+    {
+      "word": "then",
+      "start": 10.16,
+      "end": 10.66
+    },
+    {
+      "word": "sailed",
+      "start": 11.5199995,
+      "end": 12.0199995
+    },
+    {
+      "word": "to",
+      "start": 12.16,
+      "end": 12.4
+    },
+    {
+      "word": "pumpkin",
+      "start": 12.4,
+      "end": 12.9
+    },
+    {
+      "word": "island",
+      "start": 13.04,
+      "end": 13.54
+    },
+    {
+      "word": "pumpkin",
+      "start": 15.6050005,
+      "end": 16.105
+    },
+    {
+      "word": "island",
+      "start": 16.405,
+      "end": 16.885
+    },
+    {
+      "word": "was",
+      "start": 16.885,
+      "end": 17.385
+    },
+    {
+      "word": "quite",
+      "start": 17.525,
+      "end": 18.025
+    },
+    {
+      "word": "a",
+      "start": 19.205,
+      "end": 19.525
+    },
+    {
+      "word": "pump",
+      "start": 19.525,
+      "end": 20.025
+    },
+    {
+      "word": "amazing",
+      "start": 20.485,
+      "end": 20.985
+    },
+    {
+      "word": "and",
+      "start": 25.205,
+      "end": 25.705
+    },
+    {
+      "word": "they",
+      "start": 29.57,
+      "end": 30.07
+    },
+    {
+      "word": "went",
+      "start": 30.289999,
+      "end": 30.689999
+    },
+    {
+      "word": "to",
+      "start": 30.689999,
+      "end": 31.17
+    },
+    {
+      "word": "a",
+      "start": 31.17,
+      "end": 31.33
+    },
+    {
+      "word": "pumpkin",
+      "start": 31.33,
+      "end": 31.83
+    },
+    {
+      "word": "shop",
+      "start": 33.57,
+      "end": 34.07
+    },
+    {
+      "word": "where",
+      "start": 34.21,
+      "end": 34.53
+    },
+    {
+      "word": "there",
+      "start": 34.53,
+      "end": 34.69
+    },
+    {
+      "word": "were",
+      "start": 34.69,
+      "end": 35.09
+    },
+    {
+      "word": "lots",
+      "start": 35.09,
+      "end": 35.489998
+    },
+    {
+      "word": "of",
+      "start": 35.489998,
+      "end": 35.649998
+    },
+    {
+      "word": "pumpkins",
+      "start": 35.649998,
+      "end": 36.149998
+    },
+    {
+      "word": "they",
+      "start": 36.37,
+      "end": 36.85
+    },
+    {
+      "word": "bought",
+      "start": 36.85,
+      "end": 37.35
+    },
+    {
+      "word": "one",
+      "start": 37.41,
+      "end": 37.91
+    },
+    {
+      "word": "rainbow",
+      "start": 38.61,
+      "end": 39.11
+    },
+    {
+      "word": "pumpkin",
+      "start": 39.329998,
+      "end": 39.829998
+    },
+    {
+      "word": "and",
+      "start": 41.97,
+      "end": 42.29
+    },
+    {
+      "word": "the",
+      "start": 42.29,
+      "end": 42.449997
+    },
+    {
+      "word": "next",
+      "start": 42.449997,
+      "end": 42.85
+    },
+    {
+      "word": "step",
+      "start": 42.85,
+      "end": 43.35
+    },
+    {
+      "word": "in",
+      "start": 43.555,
+      "end": 43.875
+    },
+    {
+      "word": "the",
+      "start": 43.875,
+      "end": 44.275
+    },
+    {
+      "word": "boat",
+      "start": 44.275,
+      "end": 44.675
+    },
+    {
+      "word": "they",
+      "start": 44.675,
+      "end": 45.075
+    },
+    {
+      "word": "said",
+      "start": 45.075,
+      "end": 45.575
+    },
+    {
+      "word": "set",
+      "start": 47.315,
+      "end": 47.555
+    },
+    {
+      "word": "off",
+      "start": 47.555,
+      "end": 48.055
+    },
+    {
+      "word": "to",
+      "start": 48.995,
+      "end": 49.475
+    },
+    {
+      "word": "the",
+      "start": 49.475,
+      "end": 49.795
+    },
+    {
+      "word": "nori",
+      "start": 49.795,
+      "end": 50.295
+    },
+    {
+      "word": "island",
+      "start": 50.515,
+      "end": 51.015
+    },
+    {
+      "word": "the",
+      "start": 56.2,
+      "end": 56.36
+    },
+    {
+      "word": "nori",
+      "start": 56.36,
+      "end": 56.86
+    },
+    {
+      "word": "island",
+      "start": 56.92,
+      "end": 57.42
+    },
+    {
+      "word": "was",
+      "start": 58.28,
+      "end": 58.78
+    },
+    {
+      "word": "quite",
+      "start": 59.64,
+      "end": 60.14
+    },
+    {
+      "word": "quite",
+      "start": 62.36,
+      "end": 62.86
+    },
+    {
+      "word": "quite",
+      "start": 65.0,
+      "end": 65.5
+    },
+    {
+      "word": "good",
+      "start": 65.72,
+      "end": 66.22
+    },
+    {
+      "word": "they",
+      "start": 68.28,
+      "end": 68.68
+    },
+    {
+      "word": "went",
+      "start": 68.68,
+      "end": 69.18
+    },
+    {
+      "word": "say",
+      "start": 70.2,
+      "end": 70.7
+    },
+    {
+      "word": "bought",
+      "start": 72.275,
+      "end": 72.775
+    },
+    {
+      "word": "some",
+      "start": 72.835,
+      "end": 73.235
+    },
+    {
+      "word": "nori",
+      "start": 73.235,
+      "end": 73.735
+    },
+    {
+      "word": "and",
+      "start": 74.835,
+      "end": 75.235
+    },
+    {
+      "word": "ate",
+      "start": 75.235,
+      "end": 75.715004
+    },
+    {
+      "word": "all",
+      "start": 75.715004,
+      "end": 76.035
+    },
+    {
+      "word": "the",
+      "start": 76.035,
+      "end": 76.275
+    },
+    {
+      "word": "stuff",
+      "start": 76.275,
+      "end": 76.595
+    },
+    {
+      "word": "they",
+      "start": 76.595,
+      "end": 76.915
+    },
+    {
+      "word": "had",
+      "start": 76.915,
+      "end": 77.415
+    },
+    {
+      "word": "and",
+      "start": 80.755005,
+      "end": 81.255005
+    },
+    {
+      "word": "drink",
+      "start": 81.875,
+      "end": 82.275
+    },
+    {
+      "word": "the",
+      "start": 82.275,
+      "end": 82.595
+    },
+    {
+      "word": "smoothie",
+      "start": 82.595,
+      "end": 83.095
+    },
+    {
+      "word": "lick",
+      "start": 84.595,
+      "end": 84.995
+    },
+    {
+      "word": "the",
+      "start": 84.995,
+      "end": 85.475006
+    },
+    {
+      "word": "lollipop",
+      "start": 85.475006,
+      "end": 85.975006
+    },
+    {
+      "word": "make",
+      "start": 89.670006,
+      "end": 89.990005
+    },
+    {
+      "word": "the",
+      "start": 89.990005,
+      "end": 90.23
+    },
+    {
+      "word": "pumpkin",
+      "start": 90.23,
+      "end": 90.71001
+    },
+    {
+      "word": "into",
+      "start": 90.71001,
+      "end": 91.21001
+    },
+    {
+      "word": "pumpkin",
+      "start": 92.15,
+      "end": 92.65
+    },
+    {
+      "word": "pie",
+      "start": 92.87,
+      "end": 93.37
+    },
+    {
+      "word": "and",
+      "start": 95.19,
+      "end": 95.670006
+    },
+    {
+      "word": "even",
+      "start": 95.670006,
+      "end": 96.170006
+    },
+    {
+      "word": "ate",
+      "start": 99.670006,
+      "end": 100.170006
+    },
+    {
+      "word": "the",
+      "start": 101.19,
+      "end": 101.43
+    },
+    {
+      "word": "mori",
+      "start": 101.43,
+      "end": 101.93
+    },
+    {
+      "word": "they",
+      "start": 103.40501,
+      "end": 103.725006
+    },
+    {
+      "word": "ate",
+      "start": 103.725006,
+      "end": 104.125
+    },
+    {
+      "word": "everything",
+      "start": 104.125,
+      "end": 104.605
+    },
+    {
+      "word": "they",
+      "start": 104.605,
+      "end": 105.105
+    },
+    {
+      "word": "had",
+      "start": 105.40501,
+      "end": 105.90501
+    },
+    {
+      "word": "and",
+      "start": 109.805,
+      "end": 110.305
+    },
+    {
+      "word": "swam",
+      "start": 110.525,
+      "end": 110.925
+    },
+    {
+      "word": "in",
+      "start": 110.925,
+      "end": 111.165
+    },
+    {
+      "word": "the",
+      "start": 111.165,
+      "end": 111.40501
+    },
+    {
+      "word": "beach",
+      "start": 111.40501,
+      "end": 111.90501
+    },
+    {
+      "word": "and",
+      "start": 115.485,
+      "end": 115.645004
+    },
+    {
+      "word": "came",
+      "start": 115.645004,
+      "end": 116.045006
+    },
+    {
+      "word": "back",
+      "start": 116.045006,
+      "end": 116.44501
+    },
+    {
+      "word": "home",
+      "start": 116.44501,
+      "end": 116.94501
+    },
+    {
+      "word": "the",
+      "start": 117.485,
+      "end": 117.985
+    },
+    {
+      "word": "and",
+      "start": 125.631004,
+      "end": 125.791
+    }
+  ]
+}

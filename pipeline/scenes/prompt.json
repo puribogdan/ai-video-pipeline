@@ -1,0 +1,13 @@
+{
+  "001": {
+    "mode": "t2i",
+    "model": "google/nano-banana",
+    "prompt": "Two kids smile and say thank you, then walk along a wooden pier by calm blue water, morning sunshine, ready to start a boat trip.\nBright, kid-friendly, simple shapes, soft lighting"
+  },
+  "002": {
+    "mode": "edit",
+    "model": "google/nano-banana",
+    "prompt": "SCENE BRIEF: They board a small white boat and sail across shimmering sea toward Pumpkin Island on the horizon, orange pumpkin-shaped hills, excited faces, gentle breeze, clear sky.\nMatch the main character(s) identity and outfit from the reference image(s).",
+    "references": "scene_001.png"
+  }
+}
