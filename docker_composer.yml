@@ -1,0 +1,24 @@
+version: "3.9"
+services:
+web:
+build: .
+command: uvicorn app.main:app --host ${APP_HOST:-0.0.0.0} --port ${APP_PORT:-8000}
+volumes:
+- ./:/app
+env_file: .env
+ports:
+- "8000:8000"
+depends_on:
+- redis
+worker:
+build: .
+command: rq worker video-jobs
+volumes:
+- ./:/app
+env_file: .env
+depends_on:
+- redis
+redis:
+image: redis:7-alpine
+ports:
+- "6379:6379"
