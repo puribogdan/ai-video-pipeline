@@ -1,1 +1,8 @@
-{\rtf1}
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+jinja2==3.1.4
+redis==5.0.7
+rq==1.16.2
+resend==2.2.0
+python-dotenv==1.0.1
