@@ -20,9 +20,15 @@ TEMPLATES = Jinja2Templates(directory=str(APP_ROOT / "app" / "templates"))
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+# Ensure required dirs exist (important on Render)
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+STATIC_DIR = APP_ROOT / "app" / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+
 app = FastAPI()
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
-app.mount("/static", StaticFiles(directory=str(APP_ROOT / "app" / "static")), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Redis + RQ
 redis = Redis.from_url(REDIS_URL)
@@ -41,13 +47,11 @@ async def index(request: Request):
 async def submit(
     request: Request,
     email: str = Form(...),
-    audio: UploadFile = File(...),   # File(...) is correct for uploads
+    audio: UploadFile = File(...),
 ):
-    # validate content type
     if audio.content_type not in {"audio/mpeg", "audio/wav"}:
         raise HTTPException(status_code=400, detail="Unsupported file type. Use MP3 or WAV.")
 
-    # read file bytes and size-check (50MB)
     data = await audio.read()
     if len(data) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large (max 50MB)")
@@ -61,8 +65,7 @@ async def submit(
     with open(upload_path, "wb") as f:
         f.write(data)
 
-    # enqueue background job
-    from app.worker_tasks import process_job  # import here so RQ can pickle function
+    from app.worker_tasks import process_job
     rq_job = queue.enqueue(process_job, job_id, email, str(upload_path))
     JOB_STATUS[job_id] = {"state": "queued", "rq_id": rq_job.get_id()}
 
@@ -85,7 +88,6 @@ async def status(job_id: str):
             return {"state": "failed", "exc": str(job.exc_info)[:2000]}
         return {"state": job.get_status(refresh=True), "meta": meta}
     except Exception as e:
-        # fall back to whatever we tracked
         return {"state": info.get("state", "unknown"), "error": str(e)}
 
 
