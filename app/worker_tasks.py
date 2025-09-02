@@ -10,6 +10,7 @@ from typing import Dict, Optional
 
 from dotenv import load_dotenv
 from .email_utils import send_link_email
+from collections import deque
 
 load_dotenv()
 
@@ -58,7 +59,10 @@ def ensure_mp3(src_path: Path) -> Path:
     return out_path
 
 
+
+
 def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
+    """Run a subprocess, stream stdout to logs, and keep a tail buffer for errors."""
     log(f"RUN (cwd={cwd}): {' '.join(cmd)}")
     proc = subprocess.Popen(
         cmd,
@@ -71,11 +75,18 @@ def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
         errors="replace",
     )
     assert proc.stdout is not None
+    tail = deque(maxlen=200)  # keep last 200 lines
     for line in proc.stdout:
-        print(line, end="")
+        print(line, end="", flush=True)
+        tail.append(line.rstrip())
     ret = proc.wait()
     if ret != 0:
-        raise RuntimeError(f"Command failed ({ret}): {' '.join(cmd)}")
+        # include the tail so you see the *real* error in /status and the page
+        raise RuntimeError(
+            "make_video.py failed (exit %d)\n--- tail ---\n%s" %
+            (ret, "\n".join(tail))
+        )
+
 
 
 def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 8.0) -> Path:
