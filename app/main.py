@@ -3,6 +3,8 @@ import os
 import time
 import uuid
 from pathlib import Path
+import json
+from fastapi import Header
 
 from fastapi import FastAPI, Request, UploadFile, Form, File, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -142,3 +144,24 @@ async def status(job_id: str):
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
+
+@app.get("/admin/prompts/{job_id}")
+async def get_prompt_json(job_id: str, x_admin_key: str | None = Header(default=None)):
+    # Require a secret token in the header
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=500, detail="ADMIN_TOKEN not set on server")
+    if not x_admin_key or x_admin_key != ADMIN_TOKEN:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    p = UPLOADS_DIR / job_id / "pipeline" / "scenes" / "prompt.json"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="prompt.json not found")
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read prompt.json: {e}")
+
+    return JSONResponse(data)
