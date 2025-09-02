@@ -3,8 +3,10 @@ import os
 import shutil
 import subprocess
 import sys
+import mimetypes
+import time
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
 from dotenv import load_dotenv
 from .email_utils import send_link_email
@@ -12,8 +14,8 @@ from .email_utils import send_link_email
 load_dotenv()
 
 APP_ROOT = Path(__file__).resolve().parents[1]
-PIPELINE_SRC = APP_ROOT / "pipeline"   # must contain make_video.py
-MEDIA_DIR = APP_ROOT / "media"         # served publicly by the web app
+PIPELINE_SRC = APP_ROOT / "pipeline"
+MEDIA_DIR = APP_ROOT / "media"
 UPLOADS_DIR = APP_ROOT / "uploads"
 BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
 
@@ -25,7 +27,6 @@ def log(msg: str) -> None:
 
 
 def _copy_pipeline_to(job_dir: Path) -> None:
-    """Copy the pipeline folder into the per-job workspace."""
     if not PIPELINE_SRC.exists():
         raise RuntimeError(f"Pipeline folder not found: {PIPELINE_SRC}")
     target = job_dir / "pipeline"
@@ -34,30 +35,92 @@ def _copy_pipeline_to(job_dir: Path) -> None:
     shutil.copytree(PIPELINE_SRC, target)
 
 
+def ensure_mp3(src_path: Path) -> Path:
+    """If src is MP3, return it. Otherwise convert to MP3 with ffmpeg and return new path."""
+    mt, _ = mimetypes.guess_type(str(src_path))
+    is_mp3 = (src_path.suffix.lower() == ".mp3") or (mt == "audio/mpeg")
+    if is_mp3:
+        return src_path
+
+    out_path = src_path.with_suffix(".mp3")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(src_path),
+        "-vn",
+        "-acodec", "libmp3lame",
+        "-b:a", "192k",
+        "-ar", "44100",
+        "-ac", "2",
+        str(out_path),
+    ]
+    log("Converting to MP3: " + " ".join(cmd))
+    subprocess.run(cmd, check=True)
+    return out_path
+
+
+def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
+    log(f"RUN (cwd={cwd}): {' '.join(cmd)}")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(cwd),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        print(line, end="")
+    ret = proc.wait()
+    if ret != 0:
+        raise RuntimeError(f"Command failed ({ret}): {' '.join(cmd)}")
+
+
+def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 8.0) -> Path:
+    """Wait briefly for the uploaded file to be visible; fall back to globbing input.*."""
+    t0 = time.time()
+    job_dir = UPLOADS_DIR / job_id
+    last_listing: Optional[list[str]] = None
+
+    while time.time() - t0 < timeout_s:
+        if upload_path.exists():
+            return upload_path
+        # try to find any input.* file in the job dir
+        if job_dir.exists():
+            candidates = sorted(job_dir.glob("input.*"))
+            if candidates:
+                return candidates[0]
+            last_listing = [p.name for p in job_dir.glob("*")]
+        time.sleep(0.2)
+
+    # final diagnostics
+    listing = last_listing if last_listing is not None else (list(p.name for p in job_dir.glob("*")) if job_dir.exists() else [])
+    raise RuntimeError(f"Uploaded audio missing. Expected {upload_path}. Job dir listing: {listing}")
+
+
 def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
-    """
-    Run make_video.py inside the job workspace.
-    Returns the path to final_video.mp4.
-    """
     pipe_dir = job_dir / "pipeline"
     audio_input_dir = pipe_dir / "audio_input"
     audio_input_dir.mkdir(parents=True, exist_ok=True)
 
-    # Put the uploaded audio where the pipeline expects it.
-    # NOTE: Pipeline expects input.mp3. For now we assume the upload is MP3.
-    target_audio = audio_input_dir / "input.mp3"
-    shutil.copy2(audio_src, target_audio)
+    # Ensure the uploaded audio exists (wait + fallback)
+    audio_src = _wait_for_upload(job_id=job_dir.name, upload_path=audio_src)
 
-    # Ensure required env vars exist for the pipeline
+    # Ensure MP3 for the pipeline
+    audio_for_pipeline = ensure_mp3(audio_src)
+
+    target_audio = audio_input_dir / "input.mp3"
+    shutil.copy2(audio_for_pipeline, target_audio)
+
     env = os.environ.copy()
     for key in REQUIRED_ENV:
         if not env.get(key):
             raise RuntimeError(f"Missing required env: {key}")
 
-    # Run the pipeline
     cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name]
-    log(f"RUN (cwd={pipe_dir}): {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=str(pipe_dir), check=True, env=env)
+    run_with_live_output(cmd, cwd=pipe_dir, env=env)
 
     final_video = pipe_dir / "final_video.mp4"
     if not final_video.exists():
@@ -66,15 +129,11 @@ def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
 
 
 def process_job(job_id: str, email: str, upload_path: str) -> Dict[str, str]:
-    """
-    Background task executed by RQ worker (or by the combined web+worker service).
-    """
-    # Quick fake mode for testing without the heavy pipeline:
+    # quick fake mode for fast testing
     if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
         MEDIA_DIR.mkdir(parents=True, exist_ok=True)
         placeholder = APP_ROOT / "app" / "static" / "sample.mp4"
         if not placeholder.exists():
-            # create a tiny placeholder file if missing
             placeholder.parent.mkdir(parents=True, exist_ok=True)
             with open(placeholder, "wb") as f:
                 f.write(b"\x00")
@@ -84,23 +143,18 @@ def process_job(job_id: str, email: str, upload_path: str) -> Dict[str, str]:
         send_link_email(email, video_url, job_id)
         return {"status": "done", "video_url": video_url}
 
-    # Real pipeline
     job_dir = UPLOADS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
     src_audio = Path(upload_path)
-    if not src_audio.exists():
-        raise RuntimeError("Uploaded audio missing")
 
     _copy_pipeline_to(job_dir)
     final_video = _run_make_video(job_dir, src_audio)
 
-    # Move final video to public /media and email the link
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     public_path = MEDIA_DIR / f"{job_id}.mp4"
     shutil.copy2(final_video, public_path)
 
     video_url = f"{BASE_URL}/media/{job_id}.mp4"
     send_link_email(email, video_url, job_id)
-
     return {"status": "done", "video_url": video_url}
