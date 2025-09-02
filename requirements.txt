@@ -13,3 +13,4 @@ resend==2.2.0
 openai>=1.40.0
 replicate>=0.30.0
 pyaudioop>=0.1.2
+audioop-lts
