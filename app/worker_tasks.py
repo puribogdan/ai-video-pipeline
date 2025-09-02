@@ -1,4 +1,3 @@
-# app/worker_tasks.py
 import os
 import shutil
 import subprocess
@@ -7,10 +6,10 @@ import mimetypes
 import time
 from pathlib import Path
 from typing import Dict, Optional
+from collections import deque
 
 from dotenv import load_dotenv
 from .email_utils import send_link_email
-from collections import deque
 
 load_dotenv()
 
@@ -59,8 +58,6 @@ def ensure_mp3(src_path: Path) -> Path:
     return out_path
 
 
-
-
 def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
     """Run a subprocess, stream stdout to logs, and keep a tail buffer for errors."""
     log(f"RUN (cwd={cwd}): {' '.join(cmd)}")
@@ -81,16 +78,14 @@ def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
         tail.append(line.rstrip())
     ret = proc.wait()
     if ret != 0:
-        # include the tail so you see the *real* error in /status and the page
         raise RuntimeError(
             "make_video.py failed (exit %d)\n--- tail ---\n%s" %
             (ret, "\n".join(tail))
         )
 
 
-
-def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 8.0) -> Path:
-    """Wait briefly for the uploaded file to be visible; fall back to globbing input.*."""
+def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 30.0) -> Path:
+    """Wait for the uploaded file to be visible; fall back to globbing input.* in job dir."""
     t0 = time.time()
     job_dir = UPLOADS_DIR / job_id
     last_listing: Optional[list[str]] = None
@@ -98,7 +93,6 @@ def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 8.0) -> 
     while time.time() - t0 < timeout_s:
         if upload_path.exists():
             return upload_path
-        # try to find any input.* file in the job dir
         if job_dir.exists():
             candidates = sorted(job_dir.glob("input.*"))
             if candidates:
@@ -106,8 +100,9 @@ def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 8.0) -> 
             last_listing = [p.name for p in job_dir.glob("*")]
         time.sleep(0.2)
 
-    # final diagnostics
-    listing = last_listing if last_listing is not None else (list(p.name for p in job_dir.glob("*")) if job_dir.exists() else [])
+    listing = last_listing if last_listing is not None else (
+        [p.name for p in job_dir.glob("*")] if job_dir.exists() else []
+    )
     raise RuntimeError(f"Uploaded audio missing. Expected {upload_path}. Job dir listing: {listing}")
 
 

@@ -1,5 +1,5 @@
-# app/main.py
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -78,8 +78,25 @@ async def submit(
         ext = ".mp3"
 
     upload_path = user_dir / f"input{ext}"
+
+    # --- write, flush, fsync, verify ---
     with open(upload_path, "wb") as f:
         f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+
+    # Wait until the file is visible with the expected size (up to ~10s)
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        try:
+            if upload_path.exists() and upload_path.stat().st_size == len(data):
+                break
+        except FileNotFoundError:
+            pass
+        time.sleep(0.1)
+
+    if not (upload_path.exists() and upload_path.stat().st_size == len(data)):
+        raise HTTPException(status_code=500, detail="Upload write verification failed")
 
     print(f"[web] saved upload -> {upload_path} ({len(data)} bytes)", flush=True)
 
