@@ -2,6 +2,9 @@
 import os
 import uuid
 from pathlib import Path
+from app.worker_tasks import process_job
+from rq import Queue, Retry
+
 
 from fastapi import FastAPI, Request, UploadFile, Form, File, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -65,9 +68,16 @@ async def submit(
     with open(upload_path, "wb") as f:
         f.write(data)
 
-    from app.worker_tasks import process_job
-    rq_job = queue.enqueue(process_job, job_id, email, str(upload_path))
+    from app.worker_tasks import process_job  # import here so RQ can pickle function
+    rq_job = queue.enqueue(
+    process_job,
+    job_id,
+    email,
+    str(upload_path),
+    retry=Retry(max=3, interval=[15, 30, 60])  # auto-retry on transient failures
+)
     JOB_STATUS[job_id] = {"state": "queued", "rq_id": rq_job.get_id()}
+
 
     return TEMPLATES.TemplateResponse("upload.html", {"request": request, "job_id": job_id})
 
