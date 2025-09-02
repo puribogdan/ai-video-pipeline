@@ -132,7 +132,7 @@ def main():
     ap = argparse.ArgumentParser(description="End-to-end video generation orchestrator (keeps input.mp3 intact).")
     ap.add_argument("--job-id", default=None, help="Optional job id for logs/metadata.")
     ap.add_argument("--limit-scenes", type=int, default=None, help="Optional cap for scenes (dev/testing).")
-    ap.add_argument("--resolution", default="720p", help="Seedance resolution: 540p, 720p, 1080p.")
+    ap.add_argument("--resolution", default="480p", help="Seedance resolution: 540p, 720p, 1080p.")
     ap.add_argument("--fps", type=int, default=24, help="Output FPS for i2v and final video.")
     ap.add_argument("--force", action="store_true", help="Force downstream scripts to overwrite outputs where supported.")
     # Silence trimming
