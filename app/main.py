@@ -1,3 +1,4 @@
+# app/main.py
 import os
 import time
 import uuid
@@ -14,7 +15,7 @@ from rq import Queue, Retry
 load_dotenv()
 
 APP_ROOT = Path(__file__).resolve().parents[1]
-# ⚠️ Write uploads to /tmp (fast, writable on Render)
+# Store uploads in /tmp on Render (fast + writable)
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/tmp/uploads"))
 MEDIA_DIR = APP_ROOT / "media"
 TEMPLATES = Jinja2Templates(directory=str(APP_ROOT / "app" / "templates"))
@@ -31,9 +32,9 @@ app = FastAPI()
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Redis + RQ
+# Redis + RQ (30 min default timeout)
 redis = Redis.from_url(REDIS_URL)
-queue = Queue("video-jobs", connection=redis)
+queue = Queue("video-jobs", connection=redis, default_timeout=1800)
 
 # simple in-memory status (MVP)
 JOB_STATUS = {}
@@ -50,6 +51,7 @@ async def submit(
     email: str = Form(...),
     audio: UploadFile = File(...),
 ):
+    # Validate type (worker will convert non-MP3 to MP3)
     allowed_types = {
         "audio/mpeg",
         "audio/wav", "audio/x-wav",
@@ -61,14 +63,17 @@ async def submit(
     if audio.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {audio.content_type}")
 
+    # Read file and size-check (50 MB)
     data = await audio.read()
     if len(data) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large (max 50MB)")
 
+    # Per-job folder
     job_id = str(uuid.uuid4())
     user_dir = UPLOADS_DIR / job_id
     user_dir.mkdir(parents=True, exist_ok=True)
 
+    # Choose extension from original filename; default to .mp3
     orig_name = (audio.filename or "").lower()
     ext = Path(orig_name).suffix or ".mp3"
     if ext not in {".mp3", ".wav", ".m4a", ".aac", ".ogg"}:
@@ -76,7 +81,7 @@ async def submit(
 
     upload_path = user_dir / f"input{ext}"
 
-    # Write + flush + fsync and verify visibility/size
+    # Write + flush + fsync and verify
     with open(upload_path, "wb") as f:
         f.write(data)
         f.flush()
@@ -100,14 +105,15 @@ async def submit(
     except Exception:
         pass
 
-    # Enqueue with retries (handles transient Redis/worker hiccups)
-    from app.worker_tasks import process_job
+    # Enqueue with retries and longer timeout
+    from app.worker_tasks import process_job  # import here so RQ can pickle
     rq_job = queue.enqueue(
         process_job,
         job_id,
         email,
         str(upload_path),
         retry=Retry(max=3, interval=[15, 30, 60]),
+        job_timeout=1800,  # allow up to 30 minutes
     )
     JOB_STATUS[job_id] = {"state": "queued", "rq_id": rq_job.get_id()}
 
