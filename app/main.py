@@ -148,17 +148,25 @@ async def healthz():
 
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
 
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
+
 @app.get("/admin/prompts/{job_id}")
-async def get_prompt_json(job_id: str, x_admin_key: str | None = Header(default=None)):
-    # Require a secret token in the header
+async def get_prompt_json(
+    job_id: str,
+    x_admin_key: str | None = Header(default=None),  # send header: X-Admin-Key: <token>
+    key: str | None = Query(default=None),           # OR use ?key=<token> in the URL
+):
     if not ADMIN_TOKEN:
         raise HTTPException(status_code=500, detail="ADMIN_TOKEN not set on server")
-    if not x_admin_key or x_admin_key != ADMIN_TOKEN:
+
+    supplied = x_admin_key or key
+    if supplied != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Forbidden")
 
     p = UPLOADS_DIR / job_id / "pipeline" / "scenes" / "prompt.json"
     if not p.exists():
-        raise HTTPException(status_code=404, detail="prompt.json not found")
+        raise HTTPException(status_code=404, detail="prompt.json not found (job may not have run yet, or the instance restarted)")
+
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
