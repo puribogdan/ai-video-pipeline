@@ -16,7 +16,8 @@ load_dotenv()
 APP_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SRC = APP_ROOT / "pipeline"
 MEDIA_DIR = APP_ROOT / "media"
-UPLOADS_DIR = APP_ROOT / "uploads"
+# ⚠️ Read uploads from /tmp (matches main.py)
+UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/tmp/uploads"))
 BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
 
 REQUIRED_ENV = ["OPENAI_API_KEY", "REPLICATE_API_TOKEN"]
@@ -155,6 +156,12 @@ def process_job(job_id: str, email: str, upload_path: str) -> Dict[str, str]:
     src_audio = Path(upload_path)
 
     _copy_pipeline_to(job_dir)
+    # Debug listing before waiting
+    try:
+        log(f"job dir pre-wait listing {job_dir}: {[p.name for p in job_dir.glob('*')]}")
+    except Exception:
+        pass
+
     final_video = _run_make_video(job_dir, src_audio)
 
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)

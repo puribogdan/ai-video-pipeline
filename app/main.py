@@ -14,13 +14,14 @@ from rq import Queue, Retry
 load_dotenv()
 
 APP_ROOT = Path(__file__).resolve().parents[1]
-UPLOADS_DIR = APP_ROOT / "uploads"
+# ⚠️ Write uploads to /tmp (fast, writable on Render)
+UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/tmp/uploads"))
 MEDIA_DIR = APP_ROOT / "media"
 TEMPLATES = Jinja2Templates(directory=str(APP_ROOT / "app" / "templates"))
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-# Ensure required dirs exist (important on Render)
+# Ensure required dirs exist
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR = APP_ROOT / "app" / "static"
@@ -49,7 +50,6 @@ async def submit(
     email: str = Form(...),
     audio: UploadFile = File(...),
 ):
-    # Validate type (we’ll convert to MP3 in the worker if needed)
     allowed_types = {
         "audio/mpeg",
         "audio/wav", "audio/x-wav",
@@ -61,17 +61,14 @@ async def submit(
     if audio.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {audio.content_type}")
 
-    # Read file and size-check (50 MB)
     data = await audio.read()
     if len(data) > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large (max 50MB)")
 
-    # Create per-job folder
     job_id = str(uuid.uuid4())
     user_dir = UPLOADS_DIR / job_id
     user_dir.mkdir(parents=True, exist_ok=True)
 
-    # Choose extension from original filename; default to .mp3
     orig_name = (audio.filename or "").lower()
     ext = Path(orig_name).suffix or ".mp3"
     if ext not in {".mp3", ".wav", ".m4a", ".aac", ".ogg"}:
@@ -79,13 +76,12 @@ async def submit(
 
     upload_path = user_dir / f"input{ext}"
 
-    # --- write, flush, fsync, verify ---
+    # Write + flush + fsync and verify visibility/size
     with open(upload_path, "wb") as f:
         f.write(data)
         f.flush()
         os.fsync(f.fileno())
 
-    # Wait until the file is visible with the expected size (up to ~10s)
     deadline = time.time() + 10
     while time.time() < deadline:
         try:
@@ -99,9 +95,13 @@ async def submit(
         raise HTTPException(status_code=500, detail="Upload write verification failed")
 
     print(f"[web] saved upload -> {upload_path} ({len(data)} bytes)", flush=True)
+    try:
+        print(f"[web] dir listing {user_dir}: {[p.name for p in user_dir.glob('*')]}", flush=True)
+    except Exception:
+        pass
 
-    # Enqueue job with retries for transient failures
-    from app.worker_tasks import process_job  # import here for RQ pickling
+    # Enqueue with retries (handles transient Redis/worker hiccups)
+    from app.worker_tasks import process_job
     rq_job = queue.enqueue(
         process_job,
         job_id,
