@@ -14,3 +14,4 @@ openai>=1.40.0
 replicate>=0.30.0
 audioop-lts
 tenacity==8.5.0
+Pillow==10.4.0
