@@ -6,7 +6,7 @@ from pathlib import Path
 import json
 from fastapi import Header
 
-from fastapi import FastAPI, Request, UploadFile, Form, File, HTTPException
+from fastapi import FastAPI, Request, UploadFile, Form, File, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
