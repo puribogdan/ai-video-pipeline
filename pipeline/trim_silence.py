@@ -1,42 +1,57 @@
 #!/usr/bin/env python3
 """
-trim_silence_strict_keep_head.py
+trim_silence_and_enhance.py
 
-Rule:
-- Detect silences >= min_silence_ms.
-- If a silence is longer than target_silence_ms:
-    Keep the FIRST keep_head_ms (default = 1000 ms) from the original audio,
-    then (if needed) fill the remaining (target - keep_head_ms) with true silence
-    so the total kept silence equals target_silence_ms.
-- If a silence is <= target_silence_ms, leave it untouched.
+1) Trim long silences while keeping the first part of each pause (to avoid clipping word tails).
+2) Optionally denoise + sweeten the audio on export using FFmpeg filters.
 
 Defaults:
   input  : ./audio_input/input.mp3
   output : ./audio_input/input_trimmed.mp3
+
+Enhancement chain (when enabled):
+  highpass -> lowpass -> afftdn (denoise) -> deesser -> compand (gentle comp) -> dynaudnorm
+
+If FFmpeg filters are missing on your system, we fall back to a simpler
+in-process chain (high/low-pass + peak normalize).
+
+Usage examples:
+  python trim_silence_and_enhance.py
+  python trim_silence_and_enhance.py -i path/to/in.wav -o out.mp3 --no-enhance
+  python trim_silence_and_enhance.py --denoise_db 25 --hp 60 --lp 12000
 """
 
 from __future__ import annotations
 from pathlib import Path
 import argparse
-from typing import Tuple
+from typing import Tuple, List
 
-from pydub import AudioSegment
+from pydub import AudioSegment, effects
 from pydub.silence import detect_silence
+
 
 # ---------- Single source of truth for defaults ----------
 ROOT = Path(__file__).parent
 DEFAULT_INPUT  = ROOT / "audio_input" / "input.mp3"
 DEFAULT_OUTPUT = ROOT / "audio_input" / "input_trimmed.mp3"
 
-DEFAULT_TARGET_SILENCE_MS   = 1000   # total silence we want to keep when trimming (ms)
-DEFAULT_KEEP_HEAD_MS        = 1000   # keep this much original audio at the START of a detected silence (ms)
-DEFAULT_MIN_SILENCE_MS      = 1000   # detect silences >= this length (ms)
+DEFAULT_TARGET_SILENCE_MS   = 1000   # total silence to keep when trimming (ms)
+DEFAULT_KEEP_HEAD_MS        = 1000   # keep this much of the original silence head (ms)
+DEFAULT_MIN_SILENCE_MS      = 1000   # detect silences >= this (ms)
 DEFAULT_THRESHOLD_OFFSET_DB = 20     # silence threshold = audio.dBFS - offset (if absolute not set)
 DEFAULT_ABS_THRESH_DBFS     = None   # e.g., -45 (None = disabled; use relative)
 DEFAULT_SEEK_STEP_MS        = 10     # detection step (ms)
 DEFAULT_CROSSFADE_MS        = 10     # tiny crossfade on joins (ms)
 
-# ---------------------------------------------------------
+# Enhancement defaults
+DEFAULT_ENHANCE           = True
+DEFAULT_DENOISE_DB        = 25     # afftdn noise floor reduction in dB (approx)
+DEFAULT_HIGHPASS_HZ       = 60     # rumble cut
+DEFAULT_LOWPASS_HZ        = 12000  # hiss cut
+DEFAULT_DEESS_FREQ        = 6000   # center freq for de-esser
+DEFAULT_DEESS_THRES       = 0.5    # de-esser threshold (0..1-ish)
+DEFAULT_COMPAND_GAIN      = 4      # makeup gain after compand (dB)
+
 
 def trim_only_oversized_silences_keep_head(
     audio: AudioSegment,
@@ -65,7 +80,7 @@ def trim_only_oversized_silences_keep_head(
         silence_thresh = max(audio.dBFS - float(threshold_offset_db), -60.0)
 
     # Detect candidate silences (>= min_silence_ms)
-    silences = detect_silence(
+    silences: List[List[int]] = detect_silence(
         audio,
         min_silence_len=min_silence_ms,
         silence_thresh=silence_thresh,  # keep float
@@ -119,11 +134,90 @@ def trim_only_oversized_silences_keep_head(
     return out, trimmed_count, removed_ms_total / 1000.0
 
 
+def build_ffmpeg_filter_chain(
+    *,
+    hp_hz: int,
+    lp_hz: int,
+    denoise_db: int,
+    deess_freq: int,
+    deess_thresh: float,
+    compand_gain: float,
+) -> str:
+    """
+    Build a conservative, widely-supported FFmpeg filter chain.
+    Designed to work on ffmpeg ~4.2+.
+    """
+    parts = [
+        f"highpass=f={hp_hz}",
+        f"lowpass=f={lp_hz}",
+        # afftdn: frequency-domain denoiser. nf is target noise floor (lower = more reduction).
+        f"afftdn=nr={denoise_db}",
+        # de-esser around 6k (FFmpeg deesser is available in 4.1+)
+        f"deesser=f={deess_freq}:t={deess_thresh}",
+        # Gentle compand curve with make-up gain
+        "compand=attacks=0.3:decays=0.8:points=-80/-80|-40/-20|0/-10|20/-8:soft-knee=6"
+        + f":gain={compand_gain}",
+        # Dynamic loudness normalization (faster than two-pass loudnorm)
+        "dynaudnorm=f=150:g=10",
+    ]
+    return ",".join(parts)
+
+
+def export_with_enhancement(
+    seg: AudioSegment,
+    out_path: Path,
+    fmt: str,
+    *,
+    enhance: bool,
+    hp_hz: int,
+    lp_hz: int,
+    denoise_db: int,
+    deess_freq: int,
+    deess_thresh: float,
+    compand_gain: float,
+) -> bool:
+    """
+    Try to export using an FFmpeg -af filter chain. If that fails (filters missing),
+    fall back to a light in-process chain (HP/LP + peak normalize) and export clean.
+    Returns True if FFmpeg chain was used; False if we fell back.
+    """
+    if enhance:
+        af = build_ffmpeg_filter_chain(
+            hp_hz=hp_hz,
+            lp_hz=lp_hz,
+            denoise_db=denoise_db,
+            deess_freq=deess_freq,
+            deess_thresh=deess_thresh,
+            compand_gain=compand_gain,
+        )
+        try:
+            seg.export(str(out_path), format=fmt, parameters=["-af", af])
+            print(f"🔊 Enhancement: FFmpeg filters applied [-af {af}]")
+            return True
+        except Exception as e:
+            print(f"⚠️ FFmpeg enhancement failed ({e}); falling back to simple processing…")
+
+    # Fallback: simple high/low-pass + peak normalize (no denoise/compand)
+    try:
+        processed = effects.high_pass_filter(seg, hp_hz)
+        processed = effects.low_pass_filter(processed, lp_hz)
+        processed = effects.normalize(processed)  # peak normalize, not LUFS
+        processed.export(str(out_path), format=fmt)
+        print("🔊 Enhancement: fallback (HP/LP + peak normalize)")
+        return False
+    except Exception as e:
+        # Last resort: raw export
+        print(f"⚠️ Fallback processing failed ({e}); exporting without enhancement.")
+        seg.export(str(out_path), format=fmt)
+        return False
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Trim only long silences; keep the first part (e.g., 1s) to avoid clipping words.")
+    ap = argparse.ArgumentParser(description="Trim long silences; optionally denoise + sweeten the audio.")
     ap.add_argument("--input", "-i", default=str(DEFAULT_INPUT), help="Input audio (default: audio_input/input.mp3)")
     ap.add_argument("--output", "-o", default=str(DEFAULT_OUTPUT), help="Output audio (default: audio_input/input_trimmed.mp3)")
-    # CLI defaults are None; we fall back to constants so editing a single place works.
+
+    # Trim controls
     ap.add_argument("--target_silence_ms", type=int, default=None, help=f"Total silence to keep when trimming (ms) [default: {DEFAULT_TARGET_SILENCE_MS}]")
     ap.add_argument("--keep_head_ms", type=int, default=None, help=f"Keep this much from START of detected silence (ms) [default: {DEFAULT_KEEP_HEAD_MS}]")
     ap.add_argument("--min_silence_ms", type=int, default=None, help=f"Detect silences >= this length (ms) [default: {DEFAULT_MIN_SILENCE_MS}]")
@@ -131,6 +225,17 @@ def main():
     ap.add_argument("--absolute_thresh_dbfs", type=float, default=None, help=f"Absolute silence threshold (dBFS), e.g., -45 [default: {DEFAULT_ABS_THRESH_DBFS}]")
     ap.add_argument("--seek_step_ms", type=int, default=None, help=f"Silence scanning step (ms) [default: {DEFAULT_SEEK_STEP_MS}]")
     ap.add_argument("--crossfade_ms", type=int, default=None, help=f"Crossfade at joins (ms) [default: {DEFAULT_CROSSFADE_MS}]")
+
+    # Enhancement controls
+    ap.add_argument("--enhance", dest="enhance", action="store_true", help="Enable denoise + sweeten (default ON)")
+    ap.add_argument("--no-enhance", dest="enhance", action="store_false", help="Disable enhancement filters")
+    ap.set_defaults(enhance=DEFAULT_ENHANCE)
+    ap.add_argument("--denoise_db", type=int, default=DEFAULT_DENOISE_DB, help="Denoise amount for afftdn (approx dB reduction)")
+    ap.add_argument("--hp", type=int, default=DEFAULT_HIGHPASS_HZ, help="High-pass cutoff Hz (rumble)")
+    ap.add_argument("--lp", type=int, default=DEFAULT_LOWPASS_HZ, help="Low-pass cutoff Hz (hiss)")
+    ap.add_argument("--deess_freq", type=int, default=DEFAULT_DEESS_FREQ, help="De-esser center frequency (Hz)")
+    ap.add_argument("--deess_thresh", type=float, default=DEFAULT_DEESS_THRES, help="De-esser threshold (0..1 approx)")
+    ap.add_argument("--compand_gain", type=float, default=DEFAULT_COMPAND_GAIN, help="Makeup gain (dB) after compression")
     args = ap.parse_args()
 
     # Resolve effective settings
@@ -151,13 +256,19 @@ def main():
     print("— Trim settings —")
     print(f"  target_silence_ms   : {target_sil_ms}")
     print(f"  keep_head_ms        : {keep_head_ms}")
-    print(f"  min_silence_ms      : {min_sil_ms}")
+    print(f"  min_silence_ms      : {min_silence_ms}")
     if abs_dbfs is None:
         print(f"  threshold           : relative (dBFS - {off_db})")
     else:
         print(f"  threshold           : absolute {abs_dbfs} dBFS")
     print(f"  seek_step_ms        : {step_ms}")
     print(f"  crossfade_ms        : {xfade_ms}")
+    print("— Enhance —")
+    print(f"  enabled             : {args.enhance}")
+    print(f"  hp / lp             : {args.hp} Hz / {args.lp} Hz")
+    print(f"  denoise_db          : {args.denoise_db} dB (afftdn)")
+    print(f"  deesser             : f={args.deess_freq} Hz, t={args.deess_thresh}")
+    print(f"  compand_makeup_gain : {args.compand_gain} dB")
 
     processed, n_trimmed, seconds_removed = trim_only_oversized_silences_keep_head(
         audio,
@@ -171,11 +282,21 @@ def main():
     )
 
     fmt = out_path.suffix.lstrip(".").lower() or "mp3"
-    processed.export(out_path, format=fmt)
+
+    used_ffmpeg_filters = export_with_enhancement(
+        processed, out_path, fmt,
+        enhance=args.enhance,
+        hp_hz=args.hp, lp_hz=args.lp,
+        denoise_db=args.denoise_db,
+        deess_freq=args.deess_freq, deess_thresh=args.deess_thresh,
+        compand_gain=args.compand_gain,
+    )
 
     print(f"\n✅ Wrote: {out_path}")
     print(f"   original: {len(audio)/1000:.2f}s | trimmed: {len(processed)/1000:.2f}s")
     print(f"   silences shortened: {n_trimmed} | time removed: {seconds_removed:.2f}s")
+    if args.enhance:
+        print(f"   enhancement mode   : {'ffmpeg filters' if used_ffmpeg_filters else 'fallback (HP/LP + normalize)'}")
 
 
 if __name__ == "__main__":
