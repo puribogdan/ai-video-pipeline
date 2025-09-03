@@ -1,5 +1,5 @@
 # generate_images_flux_schnell.py
-# Minimal pipeline with prompt logging:
+# Minimal pipeline with prompt logging + robust retries:
 #   • Scene 1: google/nano-banana (text → image)
 #   • Scenes 2..N: google/nano-banana (image edit)
 #       - Scene 2 edits FROM scene_001
@@ -9,7 +9,7 @@
 #   • Prompts logged to scenes/prompt.json
 
 from __future__ import annotations
-import os, io, sys, json, argparse, contextlib
+import os, io, sys, json, argparse, contextlib, time, random
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -33,7 +33,18 @@ PROMPT_JSON  = SCENES_DIR / "prompt.json"
 DEFAULT_FORCE = True  # overwrite existing frames if present
 DEFAULT_STYLE = "Bright, kid-friendly, simple shapes, soft lighting"
 
+# Retry controls (env-tunable)
+MAX_ATTEMPTS    = int(os.getenv("IMG_MAX_ATTEMPTS", "5"))
+BASE_DELAY_S    = float(os.getenv("IMG_RETRY_BASE_DELAY", "1.5"))
+MAX_DELAY_S     = 20.0
+
 # -------------------- Helpers --------------------
+def _sleep_backoff(attempt: int) -> None:
+    """Exponential backoff with a little jitter."""
+    delay = min(BASE_DELAY_S * (2 ** (attempt - 1)), MAX_DELAY_S)
+    delay += random.uniform(0.0, 0.25 * delay)
+    time.sleep(delay)
+
 def load_scenes() -> List[Dict[str, Any]]:
     if not SCRIPT_PATH.exists():
         raise FileNotFoundError(f"Missing {SCRIPT_PATH}. Run generate_script.py first.")
@@ -121,31 +132,23 @@ def save_png_no_resize(path: Path, img_bytes: bytes) -> None:
 # -------------------- Prompt builders --------------------
 def build_t2i_prompt(desc: str, style: str) -> str:
     # Keep it simple to mimic UI behavior.
-    # You can customize if needed, but we keep extra wording out.
     return f"{desc}\n{style}"
 
 def build_edit_prompt(desc: str) -> str:
-    # Minimal edit prompt that keeps identity and layout flexible.
-    # (Model behavior is mostly guided by the refs; we avoid extra constraints.)
+    # Minimal edit prompt guided by refs.
     return f"SCENE BRIEF: {desc}\nMatch the main character(s) identity and outfit from the reference image(s)."
 
-# -------------------- Model calls --------------------
-def run_nano_banana_t2i(prompt: str):
+# -------------------- Model calls (single-attempt primitives) --------------------
+def _run_nano_banana_t2i_once(prompt: str):
     # ONLY 'prompt' (no extra params).
     return replicate.run(
         NANO_BANANA_MODEL,
-        input={
-            "prompt": prompt
-        },
+        input={"prompt": prompt},
     )
 
-def run_nano_banana_edit(prompt: str, refs: List[Path]):
-    # ONLY 'prompt' + 'image_input' (list). No extra params.
-    files = []
-    for p in refs:
-        # Open each as file object; Replicate accepts file-like in arrays
-        f = open(p, "rb")
-        files.append(f)
+def _run_nano_banana_edit_once(prompt: str, refs: List[Path]):
+    # ONLY 'prompt' + 'image_input' (list).
+    files = [open(p, "rb") for p in refs]
     try:
         return replicate.run(
             NANO_BANANA_MODEL,
@@ -158,6 +161,43 @@ def run_nano_banana_edit(prompt: str, refs: List[Path]):
         for f in files:
             with contextlib.suppress(Exception):
                 f.close()
+
+# -------------------- Robust wrappers with retry --------------------
+def generate_t2i_with_retry(prompt: str) -> bytes:
+    last_err: Optional[Exception] = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            out = _run_nano_banana_t2i_once(prompt)
+            data = outputs_to_image_bytes(out)
+            if data:
+                if attempt > 1:
+                    print(f"✅ T2I succeeded on attempt {attempt}/{MAX_ATTEMPTS}", flush=True)
+                return data
+            raise RuntimeError("Empty output from model")
+        except Exception as e:
+            last_err = e
+            print(f"⚠️  T2I attempt {attempt}/{MAX_ATTEMPTS} failed: {e}", flush=True)
+            if attempt < MAX_ATTEMPTS:
+                _sleep_backoff(attempt)
+    raise RuntimeError(f"T2I failed after {MAX_ATTEMPTS} attempts: {last_err}")
+
+def generate_edit_with_retry(prompt: str, refs: List[Path]) -> bytes:
+    last_err: Optional[Exception] = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            out = _run_nano_banana_edit_once(prompt, refs)
+            data = outputs_to_image_bytes(out)
+            if data:
+                if attempt > 1:
+                    print(f"✅ EDIT succeeded on attempt {attempt}/{MAX_ATTEMPTS}", flush=True)
+                return data
+            raise RuntimeError("Empty output from model")
+        except Exception as e:
+            last_err = e
+            print(f"⚠️  EDIT attempt {attempt}/{MAX_ATTEMPTS} failed: {e}", flush=True)
+            if attempt < MAX_ATTEMPTS:
+                _sleep_backoff(attempt)
+    raise RuntimeError(f"EDIT failed after {MAX_ATTEMPTS} attempts: {last_err}")
 
 # -------------------- Main --------------------
 def main():
@@ -200,9 +240,9 @@ def main():
 
         try:
             if i == 1:
-                # TEXT → IMAGE
+                # TEXT → IMAGE (with retries)
                 prompt = build_t2i_prompt(desc=desc, style=DEFAULT_STYLE)
-                out = run_nano_banana_t2i(prompt)
+                img_bytes = generate_t2i_with_retry(prompt)
                 mode = "t2i"
                 prompt_log[sid] = {
                     "mode": mode,
@@ -210,20 +250,18 @@ def main():
                     "prompt": prompt,
                 }
             else:
-                # EDIT
+                # EDIT (with retries)
                 if i == 2:
-                    # Only FIRST image as reference
                     if ref_png is None or not ref_png.exists():
                         raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
                     refs = [ref_png]
                 else:
-                    # FIRST + PREVIOUS images as references
                     if ref_png is None or not ref_png.exists() or prev_png is None or not prev_png.exists():
                         raise RuntimeError(f"Missing references for scene {sid}.")
                     refs = [ref_png, prev_png]
 
                 edit_prompt = build_edit_prompt(desc=desc)
-                out = run_nano_banana_edit(edit_prompt, refs)
+                img_bytes = generate_edit_with_retry(edit_prompt, refs)
                 mode = "edit"
                 prompt_log[sid] = {
                     "mode": mode,
@@ -232,13 +270,8 @@ def main():
                     "references": ", ".join([p.name for p in refs]),
                 }
 
-            data = outputs_to_image_bytes(out)
-            if not data:
-                print(f"DEBUG output type: {type(out)}; sample: {str(out)[:200]}")
-                raise RuntimeError(f"No usable image bytes in model output (scene {sid}).")
-
-            # Save AS-IS size (no crop/resize); we just encode as PNG for consistency with pipeline
-            save_png_no_resize(out_path, data)
+            # Save AS-IS size (no crop/resize)
+            save_png_no_resize(out_path, img_bytes)
 
             if i == 1 and ref_png is None:
                 ref_png = out_path
@@ -251,14 +284,15 @@ def main():
             }
 
         except Exception as e:
-            print(f"⚠️  Scene {sid} failed: {e}")
-            # Write a small placeholder so the pipeline keeps moving
+            # All retries failed; write placeholder but DO NOT silently move on without a frame.
+            print(f"❌ Scene {sid} failed after {MAX_ATTEMPTS} attempts: {e}", flush=True)
             placeholder = Image.new("RGB", (64, 64), (220, 220, 220))
             out_path.parent.mkdir(parents=True, exist_ok=True)
             placeholder.save(out_path, "PNG")
             if i == 1 and ref_png is None:
                 ref_png = out_path
-            manifest[sid] = {"image_path": str(out_path), "error": str(e)}
+            prev_png = out_path
+            manifest[sid] = {"image_path": str(out_path), "error": str(e), "retries": MAX_ATTEMPTS}
 
     MANIFEST.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     PROMPT_JSON.write_text(json.dumps(prompt_log, indent=2), encoding="utf-8")
