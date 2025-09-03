@@ -5,6 +5,8 @@ import uuid
 from pathlib import Path
 import json
 from fastapi import Header
+from fastapi import Header, Query, HTTPException
+from fastapi.responses import FileResponse
 
 from fastapi import FastAPI, Request, UploadFile, Form, File, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -172,4 +174,27 @@ async def get_prompt_json(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read prompt.json: {e}")
 
+        
+
     return JSONResponse(data)
+
+@app.get("/admin/script/{job_id}")
+async def admin_download_script(
+    job_id: str,
+    key: str | None = Query(default=None),          # ?key=ADMIN_TOKEN
+    x_admin_key: str | None = Header(default=None), # or header: X-Admin-Key: ADMIN_TOKEN
+):
+    admin_token = os.getenv("ADMIN_TOKEN", "")
+    if not admin_token or (key != admin_token and x_admin_key != admin_token):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    path = UPLOADS_DIR / job_id / "pipeline" / "scripts" / "input_script.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="script not found")
+
+    # force a download with a nice filename
+    return FileResponse(
+        path,
+        media_type="application/json",
+        filename=f"{job_id}_script.json",
+    )
