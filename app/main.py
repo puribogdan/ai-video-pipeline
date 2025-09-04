@@ -45,13 +45,14 @@ async def index(request: Request):
 
 
 def _safe_name(name: str) -> str:
-    # very small sanitizer; keep letters, digits, dash, underscore, dot
     keep = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
     cleaned = "".join(ch if ch in keep else "_" for ch in (name or "upload"))
-    # avoid empty or leading dot
     if not cleaned or cleaned.startswith("."):
         cleaned = f"file_{uuid.uuid4().hex}"
     return cleaned[:128]
+
+
+_ALLOWED_STYLES = {"anime", "3d", "kid", "storybook", "fantasy"}
 
 
 @app.post("/submit", response_class=HTMLResponse)
@@ -60,7 +61,13 @@ async def submit(
     email: str = Form(...),
     audio: UploadFile = File(...),
     portrait: UploadFile | None = File(default=None),
+    style: str = Form("kid"),
 ):
+    # validate style
+    style = (style or "kid").lower().strip()
+    if style not in _ALLOWED_STYLES:
+        raise HTTPException(status_code=400, detail=f"Invalid style '{style}'. Choose one of: {sorted(_ALLOWED_STYLES)}")
+
     allowed_mimes = {
         "audio/mpeg", "audio/wav", "audio/x-wav",
         "audio/m4a", "audio/x-m4a", "audio/mp4",
@@ -77,7 +84,7 @@ async def submit(
     user_dir = UPLOADS_DIR / job_id
     user_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save audio under its original (sanitized) name — ANY name works
+    # Save audio with original (sanitized) name
     orig_audio_name = _safe_name(audio.filename or "audio_upload")
     audio_path = user_dir / orig_audio_name
     with open(audio_path, "wb") as f:
@@ -85,7 +92,7 @@ async def submit(
         f.flush()
         os.fsync(f.fileno())
 
-    # Optional portrait: accept any common image name/extension
+    # Optional portrait
     if portrait and portrait.filename:
         img = await portrait.read()
         if img:
@@ -110,13 +117,14 @@ async def submit(
     except Exception:
         pass
 
-    # Enqueue job — pass the actual saved audio path (any name)
+    # Enqueue with style forwarded to worker
     from app.worker_tasks import process_job
     rq_job = queue.enqueue(
         process_job,
         job_id,
         email,
         str(audio_path),
+        style,  # <-- pass style through
         retry=Retry(max=3, interval=[15, 30, 60]),
         job_timeout=1800,
     )
@@ -188,8 +196,4 @@ async def admin_download_script(
     if not path.exists():
         raise HTTPException(status_code=404, detail="script not found")
 
-    return FileResponse(
-        path,
-        media_type="application/json",
-        filename=f"{job_id}_script.json",
-    )
+    return FileResponse(path, media_type="application/json", filename=f"{job_id}_script.json")

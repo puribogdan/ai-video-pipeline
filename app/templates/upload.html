@@ -23,7 +23,8 @@
         font-weight: bold;
       }
       input[type='file'],
-      input[type='email'] {
+      input[type='email'],
+      select {
         width: 100%;
         padding: 0.4em;
       }
@@ -58,6 +59,7 @@
               placeholder="you@example.com"
             />
           </div>
+
           <div>
             <label for="audio">Audio (MP3/WAV, up to 50 MB)</label><br />
             <input
@@ -68,6 +70,7 @@
               required
             />
           </div>
+
           <div>
             <label for="portrait"
               >Portrait (optional, JPG/PNG, up to 8 MB)</label
@@ -79,6 +82,23 @@
               accept="image/jpeg,image/png"
             />
           </div>
+
+          <div>
+            <label for="style">Visual Style</label><br />
+            <select id="style" name="style" required>
+              <option value="kid" selected>Kid-Friendly Cartoon</option>
+              <option value="anime">Style-Anime-Inspired</option>
+              <option value="3d">Style-Realistic 3D (Pixar/DreamWorks)</option>
+              <option value="storybook"
+                >Style-Storybook / Illustrated Paper-Cutout</option
+              >
+              <option value="fantasy">Style-Fantasy / Magical Glow</option>
+            </select>
+            <p class="muted" style="margin: 0.25em 0 0">
+              This affects only the “style” line in the prompts.
+            </p>
+          </div>
+
           <div>
             <button type="submit">Submit</button>
           </div>
@@ -89,8 +109,8 @@
     {% if job_id %}
     <div class="card" id="job">
       <p>Job queued: <code>{{ job_id }}</code></p>
-      <p class="muted"
-        >This page will update automatically. You can also track status at
+      <p class="muted">
+        This page will update automatically. You can also track status at
         <a href="/status/{{ job_id }}" target="_blank" rel="noopener"
           >/status/{{ job_id }}</a
         >.
@@ -110,7 +130,7 @@
         };
         update('Processing…');
 
-        const intervalMs = 45000; // 45s; keeps free tier awake while job runs
+        const intervalMs = 45000;
         const poll = setInterval(async () => {
           try {
             const r = await fetch(`/status/${jobId}`, { cache: 'no-store' });
@@ -135,9 +155,7 @@
             } else {
               update('Status: ' + (data.state || 'processing') + '…');
             }
-          } catch (e) {
-            // ignore transient errors and keep polling
-          }
+          } catch (e) {}
         }, intervalMs);
       })();
     </script>

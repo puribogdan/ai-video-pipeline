@@ -8,7 +8,7 @@
 #     • Scene 1 = T2I
 #     • Scene 2 = EDIT using [scene_001]
 #     • Scene 3+ = EDIT using [scene_001, previous]
-# - Prompts follow the exact spec provided.
+# - Only the *style* line is variable (chosen by user). Everything else in prompts stays the same.
 # - Saves native PNGs, logs prompts to scenes/prompt.json
 
 from __future__ import annotations
@@ -33,9 +33,16 @@ SCENES_DIR.mkdir(parents=True, exist_ok=True)
 MANIFEST     = SCENES_DIR / "manifest.json"
 PROMPT_JSON  = SCENES_DIR / "prompt.json"
 
-# -------------------- Defaults --------------------
-DEFAULT_FORCE = True  # overwrite existing frames if present
-DEFAULT_STYLE = "Bright, kid-friendly, simple shapes, soft lighting"
+# -------------------- Style Library --------------------
+STYLE_LIBRARY: Dict[str, str] = {
+    "anime":    "Vibrant, anime-inspired, expressive characters, detailed backgrounds, dynamic movement, emotional atmosphere",
+    "3d":       "Cinematic 3D, semi-realistic textures, smooth animation, soft character designs, warm and immersive lighting",
+    "kid":      "Bright, kid-friendly, simple shapes, bold outlines, soft lighting, playful and cheerful tone",
+    "storybook":"Storybook style, hand-drawn textures, watercolor and crayon feel, soft edges, cozy and nostalgic mood",
+    "fantasy":  "Whimsical fantasy, glowing colors, sparkles and dreamy lighting, enchanting environments, magical atmosphere",
+}
+
+DEFAULT_STYLE_KEY = "kid"  # fallback if env not set
 
 # -------------------- Helpers --------------------
 def load_scenes() -> List[Dict[str, Any]]:
@@ -55,7 +62,6 @@ def _download_bytes(url: str) -> bytes:
     return r.content
 
 def _fileoutput_to_bytes(obj: Any) -> Optional[bytes]:
-    # Replicate may return a URL or a file-like object; try both.
     for attr in ("url", "uri", "href"):
         val = getattr(obj, attr, None)
         if isinstance(val, str) and val.startswith(("http://", "https://")):
@@ -81,7 +87,6 @@ def _fileoutput_to_bytes(obj: Any) -> Optional[bytes]:
     return None
 
 def outputs_to_image_bytes(out: Any) -> Optional[bytes]:
-    # Handles lists, dicts, and strings returned by Replicate.
     if isinstance(out, str) and out.startswith(("http://", "https://")):
         with contextlib.suppress(Exception):
             return _download_bytes(out)
@@ -108,7 +113,6 @@ def outputs_to_image_bytes(out: Any) -> Optional[bytes]:
     return None
 
 def save_png_no_resize(path: Path, img_bytes: bytes) -> None:
-    """Save the model output as PNG WITHOUT resizing/cropping."""
     im = Image.open(io.BytesIO(img_bytes))
     if im.mode not in ("RGB", "RGBA"):
         im = im.convert("RGB")
@@ -116,46 +120,28 @@ def save_png_no_resize(path: Path, img_bytes: bytes) -> None:
     im.save(path, format="PNG")
 
 def _sha12(path: Path) -> str:
+    import hashlib
     h = hashlib.sha1()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
     return h.hexdigest()[:12]
 
-# -------------------- Prompt builders (EXACT SPEC) --------------------
-def build_scene1_prompt(desc: str, has_portrait: bool) -> str:
-    """
-    Scene 1
-    - With portrait:
-      {scene_description}
-      Bright, kid-friendly, simple shapes, soft lighting
-      Cast the person from the reference photo as the main character. Match face structure, age, skin tone, and hair shape (not the background). Keep a friendly, appealing look suitable for a kids' story. Use the reference person as the protagonist.
-    - Without portrait:
-      {scene_description}
-      Bright, kid-friendly, simple shapes, soft lighting
-    """
+# -------------------- Prompt builders (ONLY style line varies) --------------------
+def build_scene1_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
     if has_portrait:
         return (
             f"{desc}\n"
-            f"{DEFAULT_STYLE}\n"
+            f"{style_line}\n"
             "Cast the person from the reference photo as the main character. "
             "Match face structure, age, skin tone, and hair shape (not the background). "
             "Keep a friendly, appealing look suitable for a kids' story. "
             "Use the reference person as the protagonist."
         )
     else:
-        return f"{desc}\n{DEFAULT_STYLE}"
+        return f"{desc}\n{style_line}"
 
 def build_edit_prompt(desc: str, has_portrait: bool) -> str:
-    """
-    Scene 2+ (edit mode)
-    - With portrait:
-      SCENE BRIEF: {scene_description}
-      Maintain the protagonist's identity from the reference image(s) (match face & hair).
-    - Without portrait:
-      SCENE BRIEF: {scene_description}
-      Maintain visual continuity with the reference image(s).
-    """
     if has_portrait:
         return (
             f"SCENE BRIEF: {desc}\n"
@@ -181,11 +167,7 @@ def _run_with_retry(fn, *args, retries: int = 2, delay: float = 1.5, **kwargs):
                 raise last
 
 def run_nano_banana_t2i(prompt: str):
-    return _run_with_retry(
-        replicate.run,
-        NANO_BANANA_MODEL,
-        input={"prompt": prompt},
-    )
+    return _run_with_retry(replicate.run, NANO_BANANA_MODEL, input={"prompt": prompt})
 
 def run_nano_banana_edit(prompt: str, refs: List[Path]):
     files = []
@@ -205,7 +187,7 @@ def run_nano_banana_edit(prompt: str, refs: List[Path]):
 
 # -------------------- Main --------------------
 def main():
-    parser = argparse.ArgumentParser(description="Generate scene images with google/nano-banana (portrait-aware).")
+    parser = argparse.ArgumentParser(description="Generate scene images with google/nano-banana (portrait-aware, style-selectable).")
     parser.add_argument("--limit", type=int, default=None, help="Number of scenes to generate (default: all).")
     args = parser.parse_args()
 
@@ -214,13 +196,17 @@ def main():
         print("ERROR: Missing REPLICATE_API_TOKEN in .env", file=sys.stderr)
         sys.exit(1)
 
-    # Portrait support via env (worker sets PORTRAIT_PATH if user uploaded one)
+    # Resolve style from env
+    style_key = (os.getenv("STYLE_CHOICE", DEFAULT_STYLE_KEY) or DEFAULT_STYLE_KEY).lower().strip()
+    style_line = STYLE_LIBRARY.get(style_key, STYLE_LIBRARY[DEFAULT_STYLE_KEY])
+    print(f"🎨 Style: key={style_key} line=\"{style_line}\"")
+
+    # Portrait support (via env set by worker)
     portrait_env = os.getenv("PORTRAIT_PATH", "").strip()
     portrait_path: Optional[Path] = None
     if portrait_env:
         src = Path(portrait_env)
         if src.exists() and src.is_file():
-            # Copy into scenes with a stable name so refs are local & unambiguous
             SCENES_DIR.mkdir(parents=True, exist_ok=True)
             portrait_local = SCENES_DIR / ("portrait_ref" + src.suffix.lower())
             copy2(src, portrait_local)
@@ -238,7 +224,7 @@ def main():
         print("   strategy: scene_001 = EDIT [portrait], scene_002 = EDIT [scene_001, portrait], scene_003+ = EDIT [scene_001, previous, portrait]")
     else:
         print("   strategy: scene_001 = T2I, scene_002 = EDIT [scene_001], scene_003+ = EDIT [scene_001, previous]")
-    print(f"   frames: {len(scenes)} (limit={'all' if args.limit is None else args.limit}), force={DEFAULT_FORCE}")
+    print(f"   frames: {len(scenes)} (limit={'all' if args.limit is None else args.limit})")
 
     manifest: Dict[str, Dict[str, Any]] = {}
     prompt_log: Dict[str, Dict[str, str]] = {}
@@ -250,31 +236,24 @@ def main():
         sid = f"{i:03d}"
         out_path = SCENES_DIR / f"scene_{sid}.png"
 
-        # Skip existing unless force
-        if out_path.exists() and out_path.stat().st_size > 1024 and not DEFAULT_FORCE:
-            manifest[sid] = {"image_path": str(out_path), "mode": "skip-existing"}
-            if i == 1 and ref_png is None:
-                ref_png = out_path
-            prev_png = out_path
-            continue
+        if out_path.exists() and out_path.stat().st_size > 1024:
+            # DEFAULT_FORCE behavior retained (overwrite); if you want skip, add a flag
+            pass
 
         desc = (s.get("scene_description") or s.get("narration") or "Simple scene.").strip()
 
         try:
             if portrait_path:
-                # Portrait-aware path: all scenes are EDIT with the portrait in refs.
+                # All scenes are EDIT with portrait in refs
                 if i == 1:
-                    # Scene 1 with portrait: refs = [portrait]
                     refs = [portrait_path]
-                    prompt = build_scene1_prompt(desc=desc, has_portrait=True)
+                    prompt = build_scene1_prompt(desc=desc, style_line=style_line, has_portrait=True)
                 elif i == 2:
-                    # Scene 2 with portrait: refs = [scene_001, portrait]
                     if ref_png is None or not ref_png.exists():
                         raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
                     refs = [ref_png, portrait_path]
                     prompt = build_edit_prompt(desc=desc, has_portrait=True)
                 else:
-                    # Scene 3+ with portrait: refs = [scene_001, previous, portrait]
                     if ref_png is None or not ref_png.exists() or prev_png is None or not prev_png.exists():
                         raise RuntimeError(f"Missing references for scene {sid}.")
                     refs = [ref_png, prev_png, portrait_path]
@@ -286,24 +265,26 @@ def main():
                     "mode": mode,
                     "model": NANO_BANANA_MODEL,
                     "prompt": prompt,
-                    "references": ", ".join([Path(r).name if isinstance(r, (Path,)) else str(r) for r in refs]),
+                    "references": ", ".join([Path(r).name for r in refs]),
                     "references_abs": ", ".join([str(r) for r in refs]),
+                    "style_key": style_key,
+                    "style_line": style_line,
                 }
 
             else:
-                # No portrait flow
+                # No portrait
                 if i == 1:
-                    # Scene 1 without portrait: T2I
-                    prompt = build_scene1_prompt(desc=desc, has_portrait=False)
+                    prompt = build_scene1_prompt(desc=desc, style_line=style_line, has_portrait=False)
                     out = run_nano_banana_t2i(prompt)
                     mode = "t2i"
                     prompt_log[sid] = {
                         "mode": mode,
                         "model": NANO_BANANA_MODEL,
                         "prompt": prompt,
+                        "style_key": style_key,
+                        "style_line": style_line,
                     }
                 else:
-                    # Scene 2: [scene_001]; Scene 3+: [scene_001, previous]
                     if i == 2:
                         if ref_png is None or not ref_png.exists():
                             raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
@@ -322,6 +303,8 @@ def main():
                         "prompt": prompt,
                         "references": ", ".join([Path(r).name for r in refs]),
                         "references_abs": ", ".join([str(r) for r in refs]),
+                        "style_key": style_key,
+                        "style_line": style_line,
                     }
 
             data = outputs_to_image_bytes(out)
@@ -335,7 +318,6 @@ def main():
                 ref_png = out_path
             prev_png = out_path
 
-            # Manifest
             entry: Dict[str, Any] = {"image_path": str(out_path), "mode": mode}
             if mode == "edit":
                 entry["edit_refs"] = [str(p) for p in (refs if 'refs' in locals() else [])]
