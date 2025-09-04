@@ -108,6 +108,15 @@ def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 30.0) ->
     raise RuntimeError(f"Uploaded audio missing. Expected {upload_path}. Job dir listing: {listing}")
 
 
+def _find_portrait_file(job_dir: Path) -> Optional[Path]:
+    """Return the first portrait file if present (as saved by main.py), else None."""
+    for name in ("portrait.png", "portrait.jpg", "portrait.jpeg", "portrait.webp"):
+        p = job_dir / name
+        if p.exists() and p.is_file() and p.stat().st_size > 0:
+            return p
+    return None
+
+
 def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
     pipe_dir = job_dir / "pipeline"
     audio_input_dir = pipe_dir / "audio_input"
@@ -122,22 +131,24 @@ def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
     target_audio = audio_input_dir / "input.mp3"
     shutil.copy2(audio_for_pipeline, target_audio)
 
+    # Base env (validate required)
     env = os.environ.copy()
     for key in REQUIRED_ENV:
         if not env.get(key):
             raise RuntimeError(f"Missing required env: {key}")
 
-    # ✅ Pass portrait reference if present
-    portrait = job_dir / "portrait.jpg"
-    if portrait.exists():
-        env["PORTRAIT_REF"] = str(portrait)
-        log(f"Using portrait ref: {portrait}")
+    # If a portrait exists, pass it through as PORTRAIT_PATH so generate_images_flux_schnell.py can use it.
+    portrait = _find_portrait_file(job_dir)
+    if portrait:
+        env["PORTRAIT_PATH"] = str(portrait)
+        log(f"Staging portrait for pipeline: {portrait}")
 
-    # Optional: pass extra trim args to enable --no-enhance, etc., via env
+    # Optional: pass any trim extra args if you use them
     trim_extra = os.getenv("TRIM_EXTRA_ARGS", "").strip()
     if trim_extra:
         env["TRIM_EXTRA_ARGS"] = trim_extra
 
+    # Run the pipeline
     cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name]
     run_with_live_output(cmd, cwd=pipe_dir, env=env)
 

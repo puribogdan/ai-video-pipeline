@@ -1,18 +1,18 @@
 # generate_images_flux_schnell.py
-# Minimal pipeline with prompt logging:
-#   • If PORTRAIT_REF is set and exists:
-#       - Scene 1: EDIT using [portrait] (to lock identity)
-#       - Scene 2..N: EDIT using [portrait, previous]
-#   • Else (no portrait provided):
-#       - Scene 1: T2I
-#       - Scene 2: EDIT from scene_001
-#       - Scene 3+: EDIT from [scene_001, previous]
-#
-#   • Only fields used: prompt (always), image_input (for edits).
-#   • Prompts logged to scenes/prompt.json
+# Portrait-aware minimal pipeline with prompt logging.
+# - If PORTRAIT_PATH is set and exists:
+#     • Scene 1 = EDIT using [portrait]
+#     • Scene 2 = EDIT using [portrait, scene_001]
+#     • Scene 3+ = EDIT using [portrait, previous]
+# - Else (no portrait):
+#     • Scene 1 = T2I
+#     • Scene 2 = EDIT using [scene_001]
+#     • Scene 3+ = EDIT using [scene_001, previous]
+# - Always appends kid-friendly DEFAULT_STYLE to keep the look consistent.
+# - Saves native PNGs, logs prompts to scenes/prompt.json
 
 from __future__ import annotations
-import os, io, sys, json, argparse, contextlib
+import os, io, sys, json, argparse, contextlib, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -107,6 +107,7 @@ def outputs_to_image_bytes(out: Any) -> Optional[bytes]:
     return None
 
 def save_png_no_resize(path: Path, img_bytes: bytes) -> None:
+    """Save the model output as PNG WITHOUT resizing/cropping."""
     im = Image.open(io.BytesIO(img_bytes))
     if im.mode not in ("RGB", "RGBA"):
         im = im.convert("RGB")
@@ -117,22 +118,28 @@ def save_png_no_resize(path: Path, img_bytes: bytes) -> None:
 def build_t2i_prompt(desc: str, style: str) -> str:
     return f"{desc}\n{style}"
 
-def build_edit_prompt(desc: str, with_identity_hint: bool) -> str:
-    if with_identity_hint:
-        return (
-            "SCENE BRIEF: " + desc + "\n"
-            "Maintain visual continuity with the reference image(s). "
-            "Preserve the main character’s identity (face, hair, outfit) from the portrait reference."
-        )
-    else:
-        return (
-            "SCENE BRIEF: " + desc + "\n"
-            "Maintain visual continuity with the reference image(s)."
-        )
+def build_edit_prompt(desc: str, style: str, with_portrait: bool) -> str:
+    base = f"SCENE BRIEF: {desc}\n{style}\nMaintain visual continuity with the reference image(s)."
+    if with_portrait:
+        base += " Keep the main character’s face consistent with the portrait reference."
+    return base
 
-# -------------------- Model calls --------------------
+# -------------------- Model calls (with tiny retry) --------------------
+def _run_with_retry(fn, *args, retries: int = 2, delay: float = 1.5, **kwargs):
+    last = None
+    for attempt in range(retries + 1):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            last = e
+            if attempt < retries:
+                time.sleep(delay * (attempt + 1))
+            else:
+                raise last
+
 def run_nano_banana_t2i(prompt: str):
-    return replicate.run(
+    return _run_with_retry(
+        replicate.run,
         NANO_BANANA_MODEL,
         input={"prompt": prompt},
     )
@@ -143,12 +150,10 @@ def run_nano_banana_edit(prompt: str, refs: List[Path]):
         f = open(p, "rb")
         files.append(f)
     try:
-        return replicate.run(
+        return _run_with_retry(
+            replicate.run,
             NANO_BANANA_MODEL,
-            input={
-                "prompt": prompt,
-                "image_input": files,   # accepts one or more refs
-            },
+            input={"prompt": prompt, "image_input": files},
         )
     finally:
         for f in files:
@@ -157,7 +162,7 @@ def run_nano_banana_edit(prompt: str, refs: List[Path]):
 
 # -------------------- Main --------------------
 def main():
-    parser = argparse.ArgumentParser(description="Generate scene images with google/nano-banana (text & edit).")
+    parser = argparse.ArgumentParser(description="Generate scene images with google/nano-banana (portrait-aware).")
     parser.add_argument("--limit", type=int, default=None, help="Number of scenes to generate (default: all).")
     args = parser.parse_args()
 
@@ -166,31 +171,35 @@ def main():
         print("ERROR: Missing REPLICATE_API_TOKEN in .env", file=sys.stderr)
         sys.exit(1)
 
-    # Optional portrait reference from worker (absolute path)
-    portrait_env = os.getenv("PORTRAIT_REF", "").strip()
-    PORTRAIT: Optional[Path] = Path(portrait_env) if portrait_env else None
-    if PORTRAIT and not PORTRAIT.exists():
-        print(f"⚠️  PORTRAIT_REF set but file missing: {PORTRAIT}", file=sys.stderr)
-        PORTRAIT = None
-    if PORTRAIT:
-        print(f"👤 Using portrait reference: {PORTRAIT}")
+    # Portrait support via env (worker sets PORTRAIT_PATH if user uploaded one)
+    portrait_env = os.getenv("PORTRAIT_PATH", "").strip()
+    portrait_path: Optional[Path] = None
+    if portrait_env:
+        pp = Path(portrait_env)
+        if pp.exists() and pp.is_file():
+            portrait_path = pp
+            print(f"👤 Using portrait reference: {portrait_path}")
+        else:
+            print(f"⚠️ PORTRAIT_PATH set but file not found: {pp}")
 
     scenes = load_scenes()
     if args.limit is not None:
         scenes = scenes[:max(1, args.limit)]
 
-    print(f"🖼️  model={NANO_BANANA_MODEL}")
-    if PORTRAIT:
+    # Strategy log
+    if portrait_path:
+        print("🖼️  model=google/nano-banana")
         print("   strategy: scene_001 = EDIT [portrait], others = EDIT [portrait, previous]")
     else:
+        print("🖼️  model=google/nano-banana")
         print("   strategy: scene_001 = T2I, scene_002 = EDIT [scene_001], scene_003+ = EDIT [scene_001, previous]")
     print(f"   frames: {len(scenes)} (limit={'all' if args.limit is None else args.limit}), force={DEFAULT_FORCE}")
 
     manifest: Dict[str, Dict[str, Any]] = {}
     prompt_log: Dict[str, Dict[str, str]] = {}
 
-    ref_png: Optional[Path] = None   # path to scene_001.png
-    prev_png: Optional[Path] = None  # path to most recently generated frame
+    ref_png: Optional[Path] = None
+    prev_png: Optional[Path] = None
 
     for i, s in enumerate(scenes, start=1):
         sid = f"{i:03d}"
@@ -207,27 +216,31 @@ def main():
         desc = (s.get("scene_description") or s.get("narration") or "Simple scene.").strip()
 
         try:
-            # Decide mode + refs
-            if PORTRAIT:
-                # With portrait: always use EDIT
+            if portrait_path:
+                # Portrait-aware path: all scenes are EDIT with portrait in refs.
                 if i == 1:
-                    refs = [PORTRAIT]
+                    refs = [portrait_path]
+                elif i == 2:
+                    if ref_png is None or not ref_png.exists():
+                        raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
+                    refs = [portrait_path, ref_png]
                 else:
-                    refs = [PORTRAIT]
-                    if prev_png and prev_png.exists():
-                        refs.append(prev_png)
-                edit_prompt = build_edit_prompt(desc=desc, with_identity_hint=True)
-                out = run_nano_banana_edit(edit_prompt, refs)
+                    if ref_png is None or not ref_png.exists() or prev_png is None or not prev_png.exists():
+                        raise RuntimeError(f"Missing references for scene {sid}.")
+                    refs = [portrait_path, prev_png]
+
+                prompt = build_edit_prompt(desc=desc, style=DEFAULT_STYLE, with_portrait=True)
+                out = run_nano_banana_edit(prompt, refs)
                 mode = "edit"
                 prompt_log[sid] = {
                     "mode": mode,
                     "model": NANO_BANANA_MODEL,
-                    "prompt": edit_prompt,
-                    "references": ", ".join([p.name for p in refs]),
+                    "prompt": prompt,
+                    "references": ", ".join([p.name if isinstance(p, Path) else str(p) for p in refs]),
                 }
 
             else:
-                # Original behavior (no portrait)
+                # Original flow, no portrait
                 if i == 1:
                     prompt = build_t2i_prompt(desc=desc, style=DEFAULT_STYLE)
                     out = run_nano_banana_t2i(prompt)
@@ -247,17 +260,16 @@ def main():
                             raise RuntimeError(f"Missing references for scene {sid}.")
                         refs = [ref_png, prev_png]
 
-                    edit_prompt = build_edit_prompt(desc=desc, with_identity_hint=False)
-                    out = run_nano_banana_edit(edit_prompt, refs)
+                    prompt = build_edit_prompt(desc=desc, style=DEFAULT_STYLE, with_portrait=False)
+                    out = run_nano_banana_edit(prompt, refs)
                     mode = "edit"
                     prompt_log[sid] = {
                         "mode": mode,
                         "model": NANO_BANANA_MODEL,
-                        "prompt": edit_prompt,
+                        "prompt": prompt,
                         "references": ", ".join([p.name for p in refs]),
                     }
 
-            # Harvest image bytes
             data = outputs_to_image_bytes(out)
             if not data:
                 print(f"DEBUG output type: {type(out)}; sample: {str(out)[:200]}")
@@ -269,10 +281,20 @@ def main():
                 ref_png = out_path
             prev_png = out_path
 
-            man_entry: Dict[str, Any] = {"image_path": str(out_path), "mode": mode}
+            # Manifest
+            entry: Dict[str, Any] = {"image_path": str(out_path), "mode": mode}
             if mode == "edit":
-                man_entry["edit_refs"] = [str(p) for p in (refs if PORTRAIT else (refs))]
-            manifest[sid] = man_entry
+                if portrait_path:
+                    # What refs we actually used for this scene
+                    if i == 1:
+                        entry["edit_refs"] = [str(portrait_path)]
+                    elif i == 2:
+                        entry["edit_refs"] = [str(portrait_path), str(ref_png)]
+                    else:
+                        entry["edit_refs"] = [str(portrait_path), str(prev_png)]
+                else:
+                    entry["edit_refs"] = [str(ref_png)] if i == 2 else [str(ref_png), str(prev_png)]
+            manifest[sid] = entry
 
         except Exception as e:
             print(f"⚠️  Scene {sid} failed: {e}")
