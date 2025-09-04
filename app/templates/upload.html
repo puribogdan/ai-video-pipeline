@@ -1,69 +1,146 @@
-<!doctype html>
-<div class="card">
-<form action="/submit" method="post" enctype="multipart/form-data">
-<div class="row">
-<div>
-<label for="email">Email</label><br>
-<input type="email" id="email" name="email" required placeholder="you@example.com" />
-</div>
-<div>
-<label for="audio">Audio (MP3/WAV, up to 50 MB)</label><br>
-<input type="file" id="audio" name="audio" accept="audio/mpeg,audio/wav" required />
-</div>
-<div>
-<button type="submit">Submit</button>
-</div>
-</div>
-</form>
-</div>
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>AI Video Pipeline</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 2em;
+      }
+      .card {
+        border: 1px solid #ccc;
+        padding: 1em;
+        margin-bottom: 1.5em;
+        border-radius: 6px;
+      }
+      .row {
+        display: flex;
+        flex-direction: column;
+        gap: 1em;
+      }
+      label {
+        font-weight: bold;
+      }
+      input[type='file'],
+      input[type='email'] {
+        width: 100%;
+        padding: 0.4em;
+      }
+      button {
+        background: #007bff;
+        color: white;
+        padding: 0.5em 1em;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      .muted {
+        color: #666;
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <form action="/submit" method="post" enctype="multipart/form-data">
+        <div class="row">
+          <div>
+            <label for="email">Email</label><br />
+            <input
+              type="email"
+              id="email"
+              name="email"
+              required
+              placeholder="you@example.com"
+            />
+          </div>
+          <div>
+            <label for="audio">Audio (MP3/WAV, up to 50 MB)</label><br />
+            <input
+              type="file"
+              id="audio"
+              name="audio"
+              accept="audio/mpeg,audio/wav"
+              required
+            />
+          </div>
+          <div>
+            <label for="portrait"
+              >Portrait (optional, JPG/PNG, up to 8 MB)</label
+            ><br />
+            <input
+              type="file"
+              id="portrait"
+              name="portrait"
+              accept="image/jpeg,image/png"
+            />
+          </div>
+          <div>
+            <button type="submit">Submit</button>
+          </div>
+        </div>
+      </form>
+    </div>
 
+    {% if job_id %}
+    <div class="card" id="job">
+      <p>Job queued: <code>{{ job_id }}</code></p>
+      <p class="muted"
+        >This page will update automatically. You can also track status at
+        <a href="/status/{{ job_id }}" target="_blank" rel="noopener"
+          >/status/{{ job_id }}</a
+        >.
+      </p>
+      <p id="status">Starting…</p>
+      <p id="result"></p>
+    </div>
 
-{% if job_id %}
-<div class="card" id="job">
-<p>Job queued: <code>{{ job_id }}</code></p>
-<p class="muted">This page will update automatically. You can also track status at <a href="/status/{{ job_id }}" target="_blank" rel="noopener">/status/{{ job_id }}</a>.</p>
-<p id="status">Starting…</p>
-<p id="result"></p>
-</div>
+    <script>
+      (function () {
+        const jobId = "{{ job_id | default('') }}";
+        if (!jobId) return;
+        const statusEl = document.getElementById('status');
+        const resultEl = document.getElementById('result');
+        const update = (msg) => {
+          statusEl.textContent = msg;
+        };
+        update('Processing…');
 
-
-<script>
-(function(){
-const jobId = "{{ job_id | default('') }}";
-if (!jobId) return;
-const statusEl = document.getElementById('status');
-const resultEl = document.getElementById('result');
-const update = (msg) => { statusEl.textContent = msg; };
-update('Processing…');
-
-
-const intervalMs = 45000; // 45s; keeps free tier awake while job runs
-const poll = setInterval(async () => {
-try {
-const r = await fetch(`/status/${jobId}`, { cache: 'no-store' });
-const data = await r.json();
-if (data.state === 'finished' && data.result && data.result.video_url) {
-clearInterval(poll);
-update('Done!');
-resultEl.innerHTML = `<a href="${data.result.video_url}" target="_blank" rel="noopener">Download your video</a>`;
-} else if (data.state === 'failed') {
-clearInterval(poll);
-update('Failed. Please try again.');
-if (data.exc) {
-const pre = document.createElement('pre');
-pre.textContent = data.exc;
-pre.style.whiteSpace = 'pre-wrap';
-resultEl.appendChild(pre);
-}
-} else {
-update(`Status: ${(data.state || 'processing')}…`);
-}
-} catch (e) {
-// ignore transient errors and keep polling
-}
-}, intervalMs);
-})();
-</script>
-{% endif %}
-</body>
+        const intervalMs = 45000; // 45s; keeps free tier awake while job runs
+        const poll = setInterval(async () => {
+          try {
+            const r = await fetch(`/status/${jobId}`, { cache: 'no-store' });
+            const data = await r.json();
+            if (
+              data.state === 'finished' &&
+              data.result &&
+              data.result.video_url
+            ) {
+              clearInterval(poll);
+              update('Done!');
+              resultEl.innerHTML = `<a href="${data.result.video_url}" target="_blank" rel="noopener">Download your video</a>`;
+            } else if (data.state === 'failed') {
+              clearInterval(poll);
+              update('Failed. Please try again.');
+              if (data.exc) {
+                const pre = document.createElement('pre');
+                pre.textContent = data.exc;
+                pre.style.whiteSpace = 'pre-wrap';
+                resultEl.appendChild(pre);
+              }
+            } else {
+              update('Status: ' + (data.state || 'processing') + '…');
+            }
+          } catch (e) {
+            // ignore transient errors and keep polling
+          }
+        }, intervalMs);
+      })();
+    </script>
+    {% endif %}
+  </body>
 </html>

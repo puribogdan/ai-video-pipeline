@@ -2,47 +2,54 @@
 import os
 import time
 import uuid
-from pathlib import Path
 import json
-from fastapi import Header
-from fastapi import Header, Query, HTTPException
-from fastapi.responses import FileResponse
+from pathlib import Path
+from typing import Optional
 
-from fastapi import FastAPI, Request, UploadFile, Form, File, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import (
+    FastAPI,
+    Request,
+    UploadFile,
+    Form,
+    File,
+    HTTPException,
+    Header,
+    Query,
+)
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+
 from dotenv import load_dotenv
 from redis import Redis
 from rq import Queue, Retry
 
 load_dotenv()
 
+# --- Paths & setup ---
 APP_ROOT = Path(__file__).resolve().parents[1]
-# Store uploads in /tmp on Render (fast + writable)
-UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/tmp/uploads"))
+UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/tmp/uploads"))  # Render-safe, writable
 MEDIA_DIR = APP_ROOT / "media"
 TEMPLATES = Jinja2Templates(directory=str(APP_ROOT / "app" / "templates"))
+STATIC_DIR = APP_ROOT / "app" / "static"
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-
-# Ensure required dirs exist
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-STATIC_DIR = APP_ROOT / "app" / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI()
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Redis + RQ (30 min default timeout)
+# --- Redis / RQ ---
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 redis = Redis.from_url(REDIS_URL)
-queue = Queue("video-jobs", connection=redis, default_timeout=1800)
+queue = Queue("video-jobs", connection=redis, default_timeout=1800)  # 30 min
 
-# simple in-memory status (MVP)
-JOB_STATUS = {}
+# Simple in-memory tracker (MVP)
+JOB_STATUS: dict[str, dict] = {}
 
+# --- Routes ---
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -54,70 +61,89 @@ async def submit(
     request: Request,
     email: str = Form(...),
     audio: UploadFile = File(...),
+    portrait: Optional[UploadFile] = File(None),  # optional user portrait
 ):
-    # Validate type (worker will convert non-MP3 to MP3)
-    allowed_types = {
-        "audio/mpeg",
-        "audio/wav", "audio/x-wav",
-        "audio/m4a", "audio/x-m4a",
-        "audio/mp4",
-        "audio/aac",
-        "audio/ogg",
+    # Validate audio type
+    allowed_audio = {
+        "audio/mpeg", "audio/wav", "audio/x-wav",
+        "audio/m4a", "audio/x-m4a", "audio/mp4",
+        "audio/aac", "audio/ogg",
     }
-    if audio.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail=f"Unsupported file type: {audio.content_type}")
+    if audio.content_type not in allowed_audio:
+        raise HTTPException(status_code=400, detail=f"Unsupported audio type: {audio.content_type}")
 
-    # Read file and size-check (50 MB)
-    data = await audio.read()
-    if len(data) > 50 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File too large (max 50MB)")
+    audio_bytes = await audio.read()
+    if len(audio_bytes) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Audio too large (max 50MB)")
+
+    # Validate portrait (optional)
+    portrait_bytes: Optional[bytes] = None
+    portrait_path: Optional[Path] = None
+    if portrait is not None and portrait.filename:
+        allowed_img = {"image/jpeg", "image/png"}
+        if portrait.content_type not in allowed_img:
+            raise HTTPException(status_code=400, detail=f"Unsupported portrait type: {portrait.content_type}")
+        portrait_bytes = await portrait.read()
+        if len(portrait_bytes) > 8 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Portrait too large (max 8MB)")
 
     # Per-job folder
     job_id = str(uuid.uuid4())
     user_dir = UPLOADS_DIR / job_id
     user_dir.mkdir(parents=True, exist_ok=True)
 
-    # Choose extension from original filename; default to .mp3
-    orig_name = (audio.filename or "").lower()
-    ext = Path(orig_name).suffix or ".mp3"
+    # Pick extension from original audio; default to .mp3
+    ext = (Path(audio.filename or "").suffix or ".mp3").lower()
     if ext not in {".mp3", ".wav", ".m4a", ".aac", ".ogg"}:
         ext = ".mp3"
-
     upload_path = user_dir / f"input{ext}"
 
-    # Write + flush + fsync and verify
+    # Write audio to disk + verify
     with open(upload_path, "wb") as f:
-        f.write(data)
+        f.write(audio_bytes)
         f.flush()
         os.fsync(f.fileno())
 
     deadline = time.time() + 10
     while time.time() < deadline:
         try:
-            if upload_path.exists() and upload_path.stat().st_size == len(data):
+            if upload_path.exists() and upload_path.stat().st_size == len(audio_bytes):
                 break
         except FileNotFoundError:
             pass
         time.sleep(0.1)
+    if not (upload_path.exists() and upload_path.stat().st_size == len(audio_bytes)):
+        raise HTTPException(status_code=500, detail="Upload write verification failed (audio)")
 
-    if not (upload_path.exists() and upload_path.stat().st_size == len(data)):
-        raise HTTPException(status_code=500, detail="Upload write verification failed")
+    # Write portrait if present
+    if portrait_bytes:
+        pext = (Path(portrait.filename or "").suffix or ".jpg").lower()
+        if pext not in {".jpg", ".jpeg", ".png"}:
+            pext = ".jpg"
+        portrait_path = user_dir / f"portrait{pext}"
+        with open(portrait_path, "wb") as f:
+            f.write(portrait_bytes)
+            f.flush()
+            os.fsync(f.fileno())
 
-    print(f"[web] saved upload -> {upload_path} ({len(data)} bytes)", flush=True)
+    print(f"[web] saved audio -> {upload_path} ({len(audio_bytes)} bytes)", flush=True)
+    if portrait_path:
+        print(f"[web] saved portrait -> {portrait_path} ({len(portrait_bytes or b'') } bytes)", flush=True)
     try:
         print(f"[web] dir listing {user_dir}: {[p.name for p in user_dir.glob('*')]}", flush=True)
     except Exception:
         pass
 
-    # Enqueue with retries and longer timeout
-    from app.worker_tasks import process_job  # import here so RQ can pickle
+    # Enqueue job (with retries + longer timeout)
+    from app.worker_tasks import process_job  # late import to avoid pickle/import issues
     rq_job = queue.enqueue(
         process_job,
         job_id,
         email,
         str(upload_path),
+        str(portrait_path) if portrait_path else None,  # pass portrait or None
         retry=Retry(max=3, interval=[15, 30, 60]),
-        job_timeout=1800,  # allow up to 30 minutes
+        job_timeout=1800,
     )
     JOB_STATUS[job_id] = {"state": "queued", "rq_id": rq_job.get_id()}
 
@@ -147,16 +173,15 @@ async def status(job_id: str):
 async def healthz():
     return {"ok": True}
 
-
-ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
+# --- Admin-only endpoints for prompt & script ---
 
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
 
 @app.get("/admin/prompts/{job_id}")
-async def get_prompt_json(
+async def admin_get_prompt_json(
     job_id: str,
-    x_admin_key: str | None = Header(default=None),  # send header: X-Admin-Key: <token>
-    key: str | None = Query(default=None),           # OR use ?key=<token> in the URL
+    x_admin_key: Optional[str] = Header(default=None),  # header: X-Admin-Key: <token>
+    key: Optional[str] = Query(default=None),           # or query: ?key=<token>
 ):
     if not ADMIN_TOKEN:
         raise HTTPException(status_code=500, detail="ADMIN_TOKEN not set on server")
@@ -173,19 +198,19 @@ async def get_prompt_json(
         data = json.loads(p.read_text(encoding="utf-8"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read prompt.json: {e}")
-
-        
-
     return JSONResponse(data)
+
 
 @app.get("/admin/script/{job_id}")
 async def admin_download_script(
     job_id: str,
-    key: str | None = Query(default=None),          # ?key=ADMIN_TOKEN
-    x_admin_key: str | None = Header(default=None), # or header: X-Admin-Key: ADMIN_TOKEN
+    key: Optional[str] = Query(default=None),          # ?key=ADMIN_TOKEN
+    x_admin_key: Optional[str] = Header(default=None), # or header: X-Admin-Key: ADMIN_TOKEN
 ):
-    admin_token = os.getenv("ADMIN_TOKEN", "")
-    if not admin_token or (key != admin_token and x_admin_key != admin_token):
+    if not ADMIN_TOKEN:
+        raise HTTPException(status_code=500, detail="ADMIN_TOKEN not set on server")
+    supplied = x_admin_key or key
+    if supplied != ADMIN_TOKEN:
         raise HTTPException(status_code=403, detail="Forbidden")
 
     path = UPLOADS_DIR / job_id / "pipeline" / "scripts" / "input_script.json"

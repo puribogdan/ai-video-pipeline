@@ -1,3 +1,4 @@
+# app/worker_tasks.py
 import os
 import shutil
 import subprocess
@@ -107,7 +108,31 @@ def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 30.0) ->
     raise RuntimeError(f"Uploaded audio missing. Expected {upload_path}. Job dir listing: {listing}")
 
 
-def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
+def _maybe_stage_portrait(job_dir: Path, portrait_path_str: Optional[str]) -> Optional[Path]:
+    """
+    If a portrait path was provided by the web tier, copy it into the job's pipeline folder
+    so the pipeline can pick it up. Returns staged path or None.
+    """
+    if not portrait_path_str:
+        return None
+
+    portrait_src = Path(portrait_path_str)
+    if not portrait_src.exists():
+        log(f"Portrait path provided but not found: {portrait_src}")
+        return None
+
+    pipe_dir = job_dir / "pipeline"
+    refs_dir = pipe_dir / "refs"
+    refs_dir.mkdir(parents=True, exist_ok=True)
+
+    # Keep original extension; standardize the filename
+    staged = refs_dir / f"portrait{portrait_src.suffix.lower()}"
+    shutil.copy2(portrait_src, staged)
+    log(f"Staged portrait -> {staged}")
+    return staged
+
+
+def _run_make_video(job_dir: Path, audio_src: Path, portrait_staged: Optional[Path] = None) -> Path:
     pipe_dir = job_dir / "pipeline"
     audio_input_dir = pipe_dir / "audio_input"
     audio_input_dir.mkdir(parents=True, exist_ok=True)
@@ -126,6 +151,10 @@ def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
         if not env.get(key):
             raise RuntimeError(f"Missing required env: {key}")
 
+    # If we have a portrait staged, expose it to the pipeline via env var
+    if portrait_staged is not None:
+        env["PORTRAIT_IMAGE"] = str(portrait_staged)
+
     cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name]
     run_with_live_output(cmd, cwd=pipe_dir, env=env)
 
@@ -135,7 +164,12 @@ def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
     return final_video
 
 
-def process_job(job_id: str, email: str, upload_path: str) -> Dict[str, str]:
+def process_job(
+    job_id: str,
+    email: str,
+    upload_path: str,
+    portrait_path: Optional[str] = None,  # <-- NEW optional arg; everything else unchanged
+) -> Dict[str, str]:
     # quick fake mode for fast testing
     if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
         MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -162,7 +196,11 @@ def process_job(job_id: str, email: str, upload_path: str) -> Dict[str, str]:
     except Exception:
         pass
 
-    final_video = _run_make_video(job_dir, src_audio)
+    # Stage portrait if provided
+    staged_portrait = _maybe_stage_portrait(job_dir, portrait_path)
+
+    # Run pipeline (with optional portrait env var)
+    final_video = _run_make_video(job_dir, src_audio, portrait_staged=staged_portrait)
 
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     public_path = MEDIA_DIR / f"{job_id}.mp4"

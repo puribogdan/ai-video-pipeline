@@ -17,3 +17,11 @@ tenacity==8.5.0
 Pillow==10.4.0
 moviepy==1.0.3
 requests>=2.32.0
+pydub
+numpy
+scipy
+librosa
+soundfile
+noisereduce
+pyloudnorm
+webrtcvad
