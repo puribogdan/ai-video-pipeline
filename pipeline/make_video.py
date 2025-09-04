@@ -180,6 +180,14 @@ def main():
     else:
         log("Skipping trim_silence.py (flag set).")
 
+# extra args to be able to use --no-enhance
+        extra = os.getenv("TRIM_EXTRA_ARGS", "").strip()
+        if extra:
+            import shlex
+            argv = []
+            argv += shlex.split(extra)
+
+
     # Decide which audio to use for the rest of the pipeline
     if TRIMMED_AUDIO.exists() and TRIMMED_AUDIO.stat().st_size > 0:
         audio_for_pipeline = TRIMMED_AUDIO
