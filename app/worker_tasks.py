@@ -203,7 +203,7 @@ def process_job(job_id: str, email: str, upload_path: str) -> Dict[str, str]:
                 f.write(b"\x00")
         out = MEDIA_DIR / f"{job_id}.mp4"
         shutil.copy2(placeholder, out)
-        video_url = f"{BASE_URL}/media/{job_id}.mp4}"
+        video_url = f"{BASE_URL}/media/{job_id}.mp4"
         send_link_email(email, video_url, job_id)
         return {"status": "done", "video_url": video_url}
 
