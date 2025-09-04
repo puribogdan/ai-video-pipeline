@@ -12,10 +12,9 @@
 # - Saves native PNGs, logs prompts to scenes/prompt.json
 
 from __future__ import annotations
-import os, io, sys, json, argparse, contextlib, time, hashlib
+import os, io, sys, json, argparse, contextlib, time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from shutil import copy2
 
 import requests
 from dotenv import load_dotenv
@@ -115,13 +114,6 @@ def save_png_no_resize(path: Path, img_bytes: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     im.save(path, format="PNG")
 
-def _sha12(path: Path) -> str:
-    h = hashlib.sha1()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    return h.hexdigest()[:12]
-
 # -------------------- Prompt builders --------------------
 def build_t2i_prompt(desc: str, style: str) -> str:
     return f"{desc}\n{style}"
@@ -183,21 +175,18 @@ def main():
     portrait_env = os.getenv("PORTRAIT_PATH", "").strip()
     portrait_path: Optional[Path] = None
     if portrait_env:
-        src = Path(portrait_env)
-        if src.exists() and src.is_file():
-            # Copy into scenes with a stable name so refs are local & unambiguous
-            SCENES_DIR.mkdir(parents=True, exist_ok=True)
-            portrait_local = SCENES_DIR / ("portrait_ref" + src.suffix.lower())
-            copy2(src, portrait_local)
-            portrait_path = portrait_local
-            print(f"👤 Using portrait reference: {portrait_path} (size={portrait_path.stat().st_size} sha1={_sha12(portrait_path)})")
+        pp = Path(portrait_env)
+        if pp.exists() and pp.is_file():
+            portrait_path = pp
+            print(f"👤 Using portrait reference: {portrait_path}")
         else:
-            print(f"⚠️ PORTRAIT_PATH set but file not found: {src}")
+            print(f"⚠️ PORTRAIT_PATH set but file not found: {pp}")
 
     scenes = load_scenes()
     if args.limit is not None:
         scenes = scenes[:max(1, args.limit)]
 
+    # Strategy log
     print("🖼️  model=google/nano-banana")
     if portrait_path:
         print("   strategy: scene_001 = EDIT [portrait], others = EDIT [portrait, previous]")
@@ -240,22 +229,33 @@ def main():
                     refs = [portrait_path, prev_png]
 
                 prompt = build_edit_prompt(desc=desc, style=DEFAULT_STYLE, with_portrait=True)
-                out = run_nano_banana_edit(prompt, refs)
                 mode = "edit"
+
+                # ---- timing logs (EDIT) ----
+                t0 = time.time()
+                print(f"[images] start scene {sid} mode={mode} refs={[p.name if isinstance(p, Path) else str(p) for p in refs]}", flush=True)
+                out = run_nano_banana_edit(prompt, refs)
+                print(f"[images] done  scene {sid} in {time.time()-t0:.1f}s", flush=True)
+
                 prompt_log[sid] = {
                     "mode": mode,
                     "model": NANO_BANANA_MODEL,
                     "prompt": prompt,
-                    "references": ", ".join([Path(r).name if isinstance(r, (Path,)) else str(r) for r in refs]),
-                    "references_abs": ", ".join([str(r) for r in refs]),
+                    "references": ", ".join([p.name if isinstance(p, Path) else str(p) for p in refs]),
                 }
 
             else:
                 # Original flow, no portrait
                 if i == 1:
                     prompt = build_t2i_prompt(desc=desc, style=DEFAULT_STYLE)
-                    out = run_nano_banana_t2i(prompt)
                     mode = "t2i"
+
+                    # ---- timing logs (T2I) ----
+                    t0 = time.time()
+                    print(f"[images] start scene {sid} mode={mode} refs=[]", flush=True)
+                    out = run_nano_banana_t2i(prompt)
+                    print(f"[images] done  scene {sid} in {time.time()-t0:.1f}s", flush=True)
+
                     prompt_log[sid] = {
                         "mode": mode,
                         "model": NANO_BANANA_MODEL,
@@ -272,14 +272,19 @@ def main():
                         refs = [ref_png, prev_png]
 
                     prompt = build_edit_prompt(desc=desc, style=DEFAULT_STYLE, with_portrait=False)
-                    out = run_nano_banana_edit(prompt, refs)
                     mode = "edit"
+
+                    # ---- timing logs (EDIT) ----
+                    t0 = time.time()
+                    print(f"[images] start scene {sid} mode={mode} refs={[p.name for p in refs]}", flush=True)
+                    out = run_nano_banana_edit(prompt, refs)
+                    print(f"[images] done  scene {sid} in {time.time()-t0:.1f}s", flush=True)
+
                     prompt_log[sid] = {
                         "mode": mode,
                         "model": NANO_BANANA_MODEL,
                         "prompt": prompt,
-                        "references": ", ".join([Path(r).name for r in refs]),
-                        "references_abs": ", ".join([str(r) for r in refs]),
+                        "references": ", ".join([p.name for p in refs]),
                     }
 
             data = outputs_to_image_bytes(out)
