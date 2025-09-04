@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """
-trim_silence.py (AUTO)
+trim_silence.py  —  Trim long silences + strong automatic speech enhancement.
 
-Pipeline:
-  1) Trim only long silences (keep the first part to avoid clipping words).
-  2) Auto-enhance (no manual tuning required):
-       • Noise reduction strength picked from estimated SNR
-       • Auto high-pass (rumble/hum cleanup; 50/60 Hz aware)
-       • Auto low-pass if hissy content
-       • Light de-esser (only if sibilance detected)
+Pipeline (no knobs needed):
+  1) Trim only long silences (keep first part to avoid clipping words).
+  2) Enhance speech automatically:
+       • WebRTC VAD: detect speech; non-speech attenuated ~ -80 dB
+       • Transient clamp in non-speech (footsteps/door thuds)
+       • Noise reduction (noisereduce) with strength picked from SNR
+       • Tight speech band (120–7000 Hz) to kill rumble & extreme hiss
+       • Gentle de-esser if sibilance detected
        • Loudness normalize to ~ -16 LUFS
-       • Soft limiter
+       • Soft limiter for safety peaks
 
-All enhancement is pure Python DSP (librosa/noisereduce/pyloudnorm/scipy), so it is
-consistent across platforms. pydub is used for file I/O and silence detection.
+Default IO:
+  input  : ./audio_input/input.mp3
+  output : ./audio_input/input_trimmed.mp3
 """
 
 from __future__ import annotations
@@ -21,17 +23,20 @@ from pathlib import Path
 import argparse
 from typing import Tuple
 
+import io
 import numpy as np
-from scipy.signal import sosfiltfilt, butter
+from scipy.signal import butter, sosfiltfilt
+
 import librosa
+import soundfile as sf
 import noisereduce as nr
 import pyloudnorm as pyln
+import webrtcvad
 
 from pydub import AudioSegment, effects
 from pydub.silence import detect_silence
-import webrtcvad
 
-# ---------- Defaults ----------
+# ---------- Paths & defaults ----------
 ROOT = Path(__file__).parent
 DEFAULT_INPUT  = ROOT / "audio_input" / "input.mp3"
 DEFAULT_OUTPUT = ROOT / "audio_input" / "input_trimmed.mp3"
@@ -45,80 +50,69 @@ DEFAULT_ABS_THRESH_DBFS     = None
 DEFAULT_SEEK_STEP_MS        = 10
 DEFAULT_CROSSFADE_MS        = 10
 
-# Enhancement (auto)
+# Enhancement
 TARGET_LUFS          = -16.0
 LIMITER_MARGIN_DB    = 0.8
-MIN_SR               = 16000   # resample up to at least this for DSP stability
-HISS_BAND_HZ         = 10000   # energy above this counted as "hiss band"
-SIBILANCE_BAND       = (5000, 9000)   # de-ess check/attenuation band
-MAX_DEESS_DB         = 8.0            # max attenuation if sibilant
-# ---------------------------------------------------------
+MIN_SR               = 16000         # resample up to at least 16 kHz
+SPEECH_BAND          = (120.0, 7000.0)   # very effective for wide-band junk
+SIBILANCE_BAND       = (5000.0, 9000.0)
+MAX_DEESS_DB         = 6.0
 
-
-# ====== Utility: pydub <-> numpy ======
+# =============================================================================
+# pydub <-> numpy
+# =============================================================================
 def audiosegment_to_float_np(seg: AudioSegment) -> tuple[np.ndarray, int, int]:
-    """Convert pydub AudioSegment -> float32 np array in [-1,1], shape (n, ch)."""
+    """AudioSegment -> float32 np array in [-1,1], shape (n, ch)."""
     samples = np.array(seg.get_array_of_samples())
-    ch = seg.channels
-    if ch > 1:
-        samples = samples.reshape((-1, ch))
+    if seg.channels > 1:
+        samples = samples.reshape((-1, seg.channels))
     else:
         samples = samples.reshape((-1, 1))
 
-    sw = seg.sample_width
-    if sw == 2:
+    # Scale based on sample width
+    if seg.sample_width == 2:
         y = samples.astype(np.float32) / 32768.0
-    elif sw == 4:
+    elif seg.sample_width == 4:
         y = samples.astype(np.float32) / 2147483648.0
-    elif sw == 1:
-        # 8-bit PCM is often unsigned; pydub provides signed 'b' array
-        y = samples.astype(np.float32) / 128.0
     else:
         y = samples.astype(np.float32) / 32768.0
-    return y, int(seg.frame_rate), int(ch)
+    return y, int(seg.frame_rate), int(seg.channels)
 
 
 def float_np_to_audiosegment(y: np.ndarray, sr: int, channels: int) -> AudioSegment:
-    """
-    Convert float32 np array in [-1,1] (n or (n,ch)) to 16-bit PCM AudioSegment
-    without going through ffmpeg (avoids platform codec differences).
-    """
-    y = np.atleast_2d(y).astype(np.float32)
+    """float32 np [-1,1] (n or (n,ch)) -> 16-bit WAV -> AudioSegment."""
+    y = np.atleast_2d(y)
+    y = np.clip(y, -1.0, 1.0).astype(np.float32)
     if y.shape[1] != channels:
         if channels == 1:
             y = y.mean(axis=1, keepdims=True)
         else:
             y = np.tile(y.mean(axis=1, keepdims=True), (1, channels))
-    y = np.clip(y, -1.0, 1.0)
-    pcm_i16 = (y * 32767.0).astype(np.int16)
-    raw = pcm_i16.tobytes()
-    return AudioSegment(
-        data=raw,
-        sample_width=2,
-        frame_rate=sr,
-        channels=channels,
-    )
 
+    buf = io.BytesIO()
+    pcm = (y * 32767.0).astype(np.int16)  # (frames, channels)
+    # IMPORTANT: specify format="WAV" when writing to BytesIO
+    sf.write(buf, pcm, sr, subtype="PCM_16", format="WAV")
+    buf.seek(0)
+    return AudioSegment.from_file(buf, format="wav")
 
-# ====== DSP helpers ======
-def butter_sos(kind: str, cutoff_hz: float, sr: int, order: int = 2):
+# =============================================================================
+# DSP helpers
+# =============================================================================
+def butter_sos(kind: str, cutoff_hz, sr: int, order: int = 2):
     return butter(order, cutoff_hz, btype=kind, fs=sr, output="sos")
-
 
 def highpass(y: np.ndarray, sr: int, hz: float) -> np.ndarray:
     sos = butter_sos("highpass", hz, sr)
     return sosfiltfilt(sos, y, axis=0).astype(np.float32)
 
-
 def lowpass(y: np.ndarray, sr: int, hz: float) -> np.ndarray:
     sos = butter_sos("lowpass", hz, sr)
     return sosfiltfilt(sos, y, axis=0).astype(np.float32)
 
-
 def bandpass(y: np.ndarray, sr: int, f1: float, f2: float) -> np.ndarray:
     sos = butter(2, [f1, f2], btype="bandpass", fs=sr, output="sos")
     return sosfiltfilt(sos, y, axis=0).astype(np.float32)
-
 
 def soft_limiter(y: np.ndarray, margin_db: float = 0.8) -> np.ndarray:
     target_peak = 10 ** (-margin_db / 20.0)
@@ -127,196 +121,150 @@ def soft_limiter(y: np.ndarray, margin_db: float = 0.8) -> np.ndarray:
         return y
     return (y * (target_peak / peak)).astype(np.float32)
 
-
 def apply_gain(y: np.ndarray, gain_db: float) -> np.ndarray:
-    g = 10.0 ** (gain_db / 20.0)
+    g = 10 ** (gain_db / 20.0)
     return (y * g).astype(np.float32)
-
-
-def apply_filter(y: np.ndarray, sr: int, hp_hz: float | None, lp_hz: float | None) -> np.ndarray:
-    out = y
-    if hp_hz and hp_hz > 0:
-        out = highpass(out, sr, hp_hz)
-    if lp_hz and lp_hz > 0 and lp_hz < (sr * 0.45):
-        out = lowpass(out, sr, lp_hz)
-    return out.astype(np.float32)
-
 
 def rms(x: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(x), dtype=np.float64)) + 1e-12)
 
-def frame_gen(y_mono: np.ndarray, sr: int, ms: int = 20):
-    hop = int(sr * ms / 1000)
-    for i in range(0, len(y_mono), hop):
-        yield i, y_mono[i:i+hop]
+# =============================================================================
+# Heuristics
+# =============================================================================
+def estimate_snr_db(y_mono: np.ndarray) -> float:
+    """Very rough SNR estimate using percentile energies."""
+    E = np.square(y_mono).astype(np.float64)
+    noise = np.sqrt(np.percentile(E, 10))
+    signal = np.sqrt(np.percentile(E, 90))
+    return float(20 * np.log10((signal + 1e-9) / (noise + 1e-9)))
 
-def apply_vad_mask(y: np.ndarray, sr: int, aggressiveness: int = 2) -> np.ndarray:
+def detect_sibilance(sr: int, y_mono: np.ndarray) -> float:
+    """Return de-ess attenuation (0..MAX_DEESS_DB) based on 5–9k band energy."""
+    y_bp = bandpass(y_mono[:, None], sr, *SIBILANCE_BAND).squeeze()
+    ratio = rms(y_bp) / (rms(y_mono) + 1e-9)
+    if ratio < 0.10:
+        return 0.0
+    if ratio > 0.25:
+        return MAX_DEESS_DB
+    frac = (ratio - 0.10) / (0.25 - 0.10)
+    return float(MAX_DEESS_DB * np.clip(frac, 0.0, 1.0))
+
+def apply_deesser(y: np.ndarray, sr: int, attn_db: float) -> np.ndarray:
+    """Static de-esser: subtract a scaled sibilance band (5–9k)."""
+    if attn_db <= 0.25:
+        return y
+    sib = bandpass(y, sr, *SIBILANCE_BAND)
+    scale = 1.0 - (10 ** (-attn_db / 20.0))
+    return (y - scale * sib).astype(np.float32)
+
+# =============================================================================
+# VAD & transient clamp
+# =============================================================================
+def apply_vad_mask(y: np.ndarray, sr: int, aggressiveness: int = 3,
+                   pad_ms: int = 140, atten_db: float = 80.0):
     """
-    y: (n, ch) float32 [-1,1]
-    Returns y with non-speech regions attenuated ~ -40 dB.
+    WebRTC VAD to find speech; non-speech is attenuated ~ -80 dB.
+    Returns (processed_audio, speech_mask).
     """
-    vad = webrtcvad.Vad(aggressiveness)  # 0-3 (3 = most strict)
-    # VAD expects 8/16/32/48 kHz mono 16-bit PCM frames of 10/20/30 ms.
+    vad = webrtcvad.Vad(aggressiveness)
     target_sr = 16000
-    if sr != target_sr:
-        mono = librosa.resample(y.mean(axis=1), orig_sr=sr, target_sr=target_sr)
-    else:
-        mono = y.mean(axis=1)
-    # build boolean mask at target_sr
-    hop = int(target_sr * 0.02)  # 20 ms
-    mask = np.zeros_like(mono, dtype=bool)
-    # convert per-frame to 16-bit PCM bytes
-    for i in range(0, len(mono), hop):
-        chunk = mono[i:i+hop]
+    hop_t = 0.02  # 20 ms frames
+    hop = int(target_sr * hop_t)
+
+    mono = y.mean(axis=1).astype(np.float32)
+    mono_vad = librosa.resample(mono, orig_sr=sr, target_sr=target_sr) if sr != target_sr else mono
+
+    mask = np.zeros_like(mono_vad, dtype=bool)
+    for i in range(0, len(mono_vad), hop):
+        chunk = mono_vad[i:i+hop]
         if len(chunk) < hop:
-            pad = np.zeros(hop, dtype=np.float32)
-            pad[:len(chunk)] = chunk
-            chunk = pad
+            tmp = np.zeros(hop, dtype=np.float32)
+            tmp[:len(chunk)] = chunk
+            chunk = tmp
         pcm16 = (np.clip(chunk, -1, 1) * 32767).astype(np.int16).tobytes()
         try:
             is_speech = vad.is_speech(pcm16, sample_rate=target_sr)
         except Exception:
             is_speech = True
         mask[i:i+hop] = is_speech
-    # up/down sample mask to original sr length
+
+    pad = int((pad_ms/1000.0) * target_sr)
+    if pad > 0 and mask.any():
+        speak_idx = np.where(mask)[0]
+        lo = max(speak_idx[0] - pad, 0)
+        hi = min(speak_idx[-1] + pad, len(mask)-1)
+        mask[max(0, lo-pad):min(len(mask), hi+pad)] = True
+
     if sr != target_sr:
-        # resample mask by simple stretch
-        idx = np.linspace(0, len(mask) - 1, num=y.shape[0]).astype(np.int64)
+        idx = np.linspace(0, len(mask)-1, num=y.shape[0]).astype(np.int64)
         mask_full = mask[idx]
     else:
         mask_full = mask[:y.shape[0]]
-    # edge padding (avoid clipping fricatives): expand speech by 40 ms on both ends
-    pad = int(sr * 0.04)
-    speech_idx = np.where(mask_full)[0]
-    if speech_idx.size:
-        start = max(0, speech_idx[0] - pad)
-        end   = min(len(mask_full), speech_idx[-1] + pad)
-        mask_full[max(0, start-pad):min(len(mask_full), end+pad)] = True
-    # apply attenuation to non-speech frames
+
     out = y.copy()
-    attn = 10 ** (-40/20)  # -40 dB
-    out[~mask_full, :] *= attn
-    return out
-
-def downward_expander(y: np.ndarray, threshold_db=-45.0, ratio=2.0) -> np.ndarray:
-    # simple sample-wise expander in dB domain (approx)
-    eps = 1e-8
-    mag = np.maximum(np.abs(y), eps)
-    db  = 20*np.log10(mag)
-    over = db - threshold_db
-    gain_db = np.where(over < 0, over*(1-1/ratio), 0.0)
-    gain = 10**(gain_db/20.0)
-    return (y * gain).astype(np.float32)
+    out[~mask_full, :] *= 10 ** (-atten_db/20.0)
+    return out, mask_full
 
 
-# ====== Auto heuristics ======
-def estimate_snr_db(y_mono: np.ndarray) -> float:
-    """Very rough SNR estimate using percentiles."""
-    E = np.square(y_mono).astype(np.float64)
-    noise_floor = np.sqrt(np.percentile(E, 10))
-    signal_lvl  = np.sqrt(np.percentile(E, 90))
-    snr = 20 * np.log10((signal_lvl + 1e-9) / (noise_floor + 1e-9))
-    return float(snr)
-
-
-def detect_hum_or_rumble_hp(sr: int, y_mono: np.ndarray) -> float:
+def clamp_transients(y: np.ndarray, sr: int, speech_mask: np.ndarray,
+                     win_ms: int = 10, jump_db: float = 12.0, reduce_db: float = 28.0):
     """
-    If strong energy around 50/60 Hz, bump HP to ~70 Hz; else ~60 Hz default.
-    Uses same FFT length for spectrum and frequency bins to avoid mismatches.
+    Suppress sudden spikes (thuds/doors) in *non-speech* regions.
     """
-    y = np.asarray(y_mono, dtype=np.float32).ravel()
-    if y.size < 1024 or sr <= 0:
-        return 60.0
+    win = max(1, int(sr * win_ms / 1000.0))
+    mono = y.mean(axis=1)
+    kernel = np.ones(win, dtype=np.float32) / win
+    rms_fast = np.sqrt(np.convolve(mono**2, kernel, mode='same') + 1e-12)
+    med = np.maximum(1e-6, np.median(rms_fast))
+    inst_db = 20*np.log10(rms_fast + 1e-12)
+    med_db  = 20*np.log10(med)
+    spikes = (inst_db - med_db) > jump_db
 
-    y = y - float(np.mean(y))
-    n = min(y.size, 1 << 18)  # cap for speed/memory
-    spec = np.abs(np.fft.rfft(y[:n], n=n))
-    freqs = np.fft.rfftfreq(n, d=1.0 / sr)
-
-    def band_power(f_center: float, bw: float = 5.0) -> float:
-        lo, hi = f_center - bw, f_center + bw
-        mask = (freqs >= lo) & (freqs <= hi)
-        if not np.any(mask):
-            return 0.0
-        return float(spec[mask].mean())
-
-    p50 = band_power(50.0)
-    p60 = band_power(60.0)
-    low_mask = freqs <= 120.0
-    baseline = float(spec[low_mask].mean()) if np.any(low_mask) else 0.0
-
-    if max(p50, p60) > 3.0 * (baseline + 1e-9):
-        return 70.0
-    return 60.0
-
-
-def detect_hiss_lp(sr: int, y_mono: np.ndarray) -> float | None:
-    """If high-band (≥10 kHz) energy is large vs mid-band, apply low-pass ~10–12 kHz."""
-    if sr < 22050:
-        return None
-    S = np.abs(librosa.stft(y_mono, n_fft=1024, hop_length=256))
-    freqs = librosa.fft_frequencies(sr=sr, n_fft=1024)
-    hi = S[(freqs >= HISS_BAND_HZ), :]
-    mid = S[(freqs >= 1000) & (freqs < 4000), :]
-
-    hi_mean  = float(np.mean(hi)) if hi.size else 0.0
-    mid_mean = float(np.mean(mid)) if mid.size else 1e-9
-    ratio = hi_mean / mid_mean
-    if ratio > 0.55:
-        return 10000.0
-    if ratio > 0.40:
-        return 12000.0
-    return None
-
-
-def detect_sibilance(sr: int, y_mono: np.ndarray) -> float:
-    """Return de-ess dB (0..MAX_DEESS_DB) from band/broadband ratio in 5–9 kHz."""
-    bp = bandpass(y_mono[:, None], sr, *SIBILANCE_BAND).squeeze()
-    r = rms(bp) / (rms(y_mono) + 1e-9)
-    if r < 0.10:
-        return 0.0
-    if r > 0.25:
-        return MAX_DEESS_DB
-    frac = (r - 0.10) / (0.25 - 0.10)
-    return float(MAX_DEESS_DB * np.clip(frac, 0.0, 1.0))
-
-
-def apply_deesser(y: np.ndarray, sr: int, attn_db: float) -> np.ndarray:
-    """Static, gentle de-esser: subtract a scaled sibilance band (5–9 kHz)."""
-    if attn_db <= 0.2:
+    clamp_idx = spikes & (~speech_mask[:len(spikes)])
+    if not np.any(clamp_idx):
         return y
-    sibilant = bandpass(y, sr, *SIBILANCE_BAND)
-    scale = 1.0 - (10 ** (-attn_db / 20.0))  # amount to subtract
-    out = (y - scale * sibilant).astype(np.float32)
-    return out
 
+    gain = np.ones_like(mono, dtype=np.float32)
+    gain[clamp_idx] *= 10 ** (-reduce_db/20.0)
 
-# ====== Enhancement (auto) ======
+    smooth = max(1, int(sr * 0.015))
+    kernel = np.ones(smooth, dtype=np.float32) / smooth
+    gain = np.convolve(gain, kernel, mode='same').astype(np.float32)
+
+    return (y * gain[:, None]).astype(np.float32)
+
+# =============================================================================
+# Enhancement (AUTO)
+# =============================================================================
 def enhance_auto(y: np.ndarray, sr: int) -> np.ndarray:
-    """Auto denoise → de-ess (if needed) → HP/LP (auto) → LUFS → limiter."""
-    # Ensure shape (n, ch)
-    y = np.atleast_2d(y).astype(np.float32)
+    """
+    Auto denoise -> VAD mute non-speech -> transient clamp -> NR -> band-pass ->
+    (optional) de-ess -> loudness normalize -> limiter.
+    """
+    y = np.atleast_2d(y)
     if y.shape[1] == 0:
         y = y.reshape(-1, 1)
     _, ch = y.shape
 
-    # Resample up if too low for stable filters
     target_sr = max(sr, MIN_SR)
     if sr != target_sr:
         y = np.stack([librosa.resample(y[:, c], orig_sr=sr, target_sr=target_sr) for c in range(ch)], axis=1)
         sr = target_sr
 
-    # --- Noise reduction (strength from SNR) ---
-    mono = y.mean(axis=1)
-    snr_db = estimate_snr_db(mono)
-    if   snr_db <= 3:   prop = 0.97
-    elif snr_db <= 8:   prop = 0.93
+    # 1) VAD mute non-speech
+    y, speech_mask = apply_vad_mask(y, sr, aggressiveness=3, pad_ms=140, atten_db=80.0)
+
+    # 2) Clamp non-speech transients
+    y = clamp_transients(y, sr, speech_mask, win_ms=10, jump_db=12.0, reduce_db=28.0)
+
+    # 3) Noise reduction (strength from SNR)
+    mono_ref = y.mean(axis=1).astype(np.float32)
+    snr_db = estimate_snr_db(mono_ref)
+    if   snr_db <= 3:   prop = 0.96
+    elif snr_db <= 8:   prop = 0.92
     elif snr_db <= 15:  prop = 0.88
-    elif snr_db <= 25:  prop = 0.83
+    elif snr_db <= 25:  prop = 0.82
     else:               prop = 0.78
-
-
-    y = apply_vad_mask(y, sr, aggressiveness=3)  # 0..3; 3 is strictest
 
     y_dn = np.zeros_like(y, dtype=np.float32)
     for c in range(ch):
@@ -325,38 +273,35 @@ def enhance_auto(y: np.ndarray, sr: int) -> np.ndarray:
             sr=sr,
             stationary=False,
             prop_decrease=prop,
-            time_mask_smooth_ms=50,
-            freq_mask_smooth_hz=200,
+            time_mask_smooth_ms=60,
+            freq_mask_smooth_hz=250,
             clip_noise_stationary=False,
         ).astype(np.float32)
 
-    # --- De-ess if needed ---
-    attn_db = detect_sibilance(sr, y_dn.mean(axis=1))
-    y_ds = apply_deesser(y_dn, sr, attn_db)
+    # 4) Tight speech band (kills rumble & high hiss)
+    hp, lp = SPEECH_BAND
+    y_bp = bandpass(y_dn, sr, hp, lp)
 
-    # --- Auto HP/LP ---
-    hp_hz = detect_hum_or_rumble_hp(sr, y_ds.mean(axis=1))
-    lp_hz = detect_hiss_lp(sr, y_ds.mean(axis=1))
-    y_f = apply_filter(y_ds, sr, hp_hz, lp_hz)
+    # 5) Gentle de-ess if needed
+    attn_db = detect_sibilance(sr, y_bp.mean(axis=1))
+    y_ds = apply_deesser(y_bp, sr, attn_db)
 
-    y_post = downward_expander(y_ds, threshold_db=-45.0, ratio=2.0)
-
-
-    # --- Loudness normalize (~ -16 LUFS) ---
+    # 6) Loudness normalize to ~ -16 LUFS
     meter = pyln.Meter(sr)
     try:
-        lufs = meter.integrated_loudness(y_f.mean(axis=1))
+        lufs = meter.integrated_loudness(y_ds.mean(axis=1))
     except Exception:
-        lufs = -24.0  # silence fallback
-    gain_db = min(12.0, max(-12.0, TARGET_LUFS - lufs))
-    y_ln = apply_gain(y_f, gain_db)
+        lufs = -24.0
+    gain_db = float(np.clip(TARGET_LUFS - lufs, -12.0, 12.0))
+    y_ln = apply_gain(y_ds, gain_db)
 
-    # --- Limiter ---
+    # 7) Limiter (safety)
     y_out = soft_limiter(y_ln, margin_db=LIMITER_MARGIN_DB)
     return y_out
 
-
-# ====== Silence trimming ======
+# =============================================================================
+# Silence trimming
+# =============================================================================
 def trim_only_oversized_silences_keep_head(
     audio: AudioSegment,
     *,
@@ -368,7 +313,6 @@ def trim_only_oversized_silences_keep_head(
     seek_step_ms: int,
     crossfade_ms: int,
 ) -> Tuple[AudioSegment, int, float]:
-
     if absolute_thresh_dbfs is not None:
         silence_thresh = float(absolute_thresh_dbfs)
     else:
@@ -417,14 +361,15 @@ def trim_only_oversized_silences_keep_head(
 
     return out, trimmed_count, removed_ms_total / 1000.0
 
-
-# ====== Main ======
+# =============================================================================
+# Main
+# =============================================================================
 def main():
-    ap = argparse.ArgumentParser(description="Trim long silences, then auto-enhance speech audio.")
+    ap = argparse.ArgumentParser(description="Trim long silences, then auto-enhance speech (denoise, band-pass, de-ess, LUFS, limiter).")
     ap.add_argument("--input", "-i", default=str(DEFAULT_INPUT), help="Input audio (default: audio_input/input.mp3)")
     ap.add_argument("--output", "-o", default=str(DEFAULT_OUTPUT), help="Output audio (default: audio_input/input_trimmed.mp3)")
 
-    # Trimming controls
+    # Trimming (sane defaults)
     ap.add_argument("--target_silence_ms", type=int, default=DEFAULT_TARGET_SILENCE_MS)
     ap.add_argument("--keep_head_ms", type=int, default=DEFAULT_KEEP_HEAD_MS)
     ap.add_argument("--min_silence_ms", type=int, default=DEFAULT_MIN_SILENCE_MS)
@@ -433,8 +378,7 @@ def main():
     ap.add_argument("--seek_step_ms", type=int, default=DEFAULT_SEEK_STEP_MS)
     ap.add_argument("--crossfade_ms", type=int, default=DEFAULT_CROSSFADE_MS)
 
-    # Toggle enhancement (on by default)
-    ap.add_argument("--no-enhance", action="store_true", help="Disable enhancement stage.")
+    ap.add_argument("--no-enhance", action="store_true", help="Disable enhancement stage (just trim + peak normalize).")
 
     args = ap.parse_args()
 
@@ -444,7 +388,7 @@ def main():
 
     audio = AudioSegment.from_file(in_path)
 
-    # ---- Logs ----
+    # Logs
     print("— Trim settings —")
     print(f"  target_silence_ms   : {args.target_silence_ms}")
     print(f"  keep_head_ms        : {args.keep_head_ms}")
@@ -456,7 +400,7 @@ def main():
     print(f"  seek_step_ms        : {args.seek_step_ms}")
     print(f"  crossfade_ms        : {args.crossfade_ms}")
 
-    # ---- Trim silences ----
+    # Trim
     processed, n_trimmed, seconds_removed = trim_only_oversized_silences_keep_head(
         audio,
         target_silence_ms=args.target_silence_ms,
@@ -468,9 +412,9 @@ def main():
         crossfade_ms=args.crossfade_ms,
     )
 
-    # ---- Enhance (auto) ----
+    # Enhance
     if args.no_enhance:
-        out_audio = effects.normalize(processed)
+        out_audio = effects.normalize(processed)  # quick peak normalize
         enh_note = "disabled (peak normalize only)"
     else:
         y, sr, ch = audiosegment_to_float_np(processed)
@@ -478,9 +422,9 @@ def main():
             y = y[:, None]
         y_enh = enhance_auto(y, sr)
         out_audio = float_np_to_audiosegment(y_enh, max(sr, MIN_SR), channels=ch)
-        enh_note = "auto NR + de-ess(if needed) + HP/LP + LUFS + limiter"
+        enh_note = "VAD mute + transient clamp + NR + band-pass + de-ess + LUFS + limiter"
 
-    # ---- Export ----
+    # Export
     fmt = out_path.suffix.lstrip(".").lower() or "mp3"
     out_audio.export(out_path, format=fmt)
 
