@@ -2,13 +2,13 @@
 # Portrait-aware minimal pipeline with prompt logging.
 # - If PORTRAIT_PATH is set and exists:
 #     • Scene 1 = EDIT using [portrait]
-#     • Scene 2 = EDIT using [portrait, scene_001]
-#     • Scene 3+ = EDIT using [portrait, previous]
+#     • Scene 2 = EDIT using [scene_001, portrait]
+#     • Scene 3+ = EDIT using [scene_001, previous, portrait]
 # - Else (no portrait):
 #     • Scene 1 = T2I
 #     • Scene 2 = EDIT using [scene_001]
 #     • Scene 3+ = EDIT using [scene_001, previous]
-# - Always appends kid-friendly DEFAULT_STYLE to keep the look consistent.
+# - Prompts follow the exact spec provided.
 # - Saves native PNGs, logs prompts to scenes/prompt.json
 
 from __future__ import annotations
@@ -122,15 +122,50 @@ def _sha12(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()[:12]
 
-# -------------------- Prompt builders --------------------
-def build_t2i_prompt(desc: str, style: str) -> str:
-    return f"{desc}\n{style}"
+# -------------------- Prompt builders (EXACT SPEC) --------------------
+def build_scene1_prompt(desc: str, has_portrait: bool) -> str:
+    """
+    Scene 1
+    - With portrait:
+      {scene_description}
+      Bright, kid-friendly, simple shapes, soft lighting
+      Cast the person from the reference photo as the main character. Match face structure, age, skin tone, and hair shape (not the background). Keep a friendly, appealing look suitable for a kids' story. Use the reference person as the protagonist.
+    - Without portrait:
+      {scene_description}
+      Bright, kid-friendly, simple shapes, soft lighting
+    """
+    if has_portrait:
+        return (
+            f"{desc}\n"
+            f"{DEFAULT_STYLE}\n"
+            "Cast the person from the reference photo as the main character. "
+            "Match face structure, age, skin tone, and hair shape (not the background). "
+            "Keep a friendly, appealing look suitable for a kids' story. "
+            "Use the reference person as the protagonist."
+        )
+    else:
+        return f"{desc}\n{DEFAULT_STYLE}"
 
-def build_edit_prompt(desc: str, style: str, with_portrait: bool) -> str:
-    base = f"SCENE BRIEF: {desc}\n{style}\nMaintain visual continuity with the reference image(s)."
-    if with_portrait:
-        base += " Keep the main character’s face consistent with the portrait reference."
-    return base
+def build_edit_prompt(desc: str, has_portrait: bool) -> str:
+    """
+    Scene 2+ (edit mode)
+    - With portrait:
+      SCENE BRIEF: {scene_description}
+      Maintain the protagonist's identity from the reference image(s) (match face & hair).
+    - Without portrait:
+      SCENE BRIEF: {scene_description}
+      Maintain visual continuity with the reference image(s).
+    """
+    if has_portrait:
+        return (
+            f"SCENE BRIEF: {desc}\n"
+            "Maintain the protagonist's identity from the reference image(s) (match face & hair)."
+        )
+    else:
+        return (
+            f"SCENE BRIEF: {desc}\n"
+            "Maintain visual continuity with the reference image(s)."
+        )
 
 # -------------------- Model calls (with tiny retry) --------------------
 def _run_with_retry(fn, *args, retries: int = 2, delay: float = 1.5, **kwargs):
@@ -200,7 +235,7 @@ def main():
 
     print("🖼️  model=google/nano-banana")
     if portrait_path:
-        print("   strategy: scene_001 = EDIT [portrait], others = EDIT [portrait, previous]")
+        print("   strategy: scene_001 = EDIT [portrait], scene_002 = EDIT [scene_001, portrait], scene_003+ = EDIT [scene_001, previous, portrait]")
     else:
         print("   strategy: scene_001 = T2I, scene_002 = EDIT [scene_001], scene_003+ = EDIT [scene_001, previous]")
     print(f"   frames: {len(scenes)} (limit={'all' if args.limit is None else args.limit}), force={DEFAULT_FORCE}")
@@ -227,19 +262,24 @@ def main():
 
         try:
             if portrait_path:
-                # Portrait-aware path: all scenes are EDIT with portrait in refs.
+                # Portrait-aware path: all scenes are EDIT with the portrait in refs.
                 if i == 1:
+                    # Scene 1 with portrait: refs = [portrait]
                     refs = [portrait_path]
+                    prompt = build_scene1_prompt(desc=desc, has_portrait=True)
                 elif i == 2:
+                    # Scene 2 with portrait: refs = [scene_001, portrait]
                     if ref_png is None or not ref_png.exists():
                         raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
-                    refs = [portrait_path, ref_png]
+                    refs = [ref_png, portrait_path]
+                    prompt = build_edit_prompt(desc=desc, has_portrait=True)
                 else:
+                    # Scene 3+ with portrait: refs = [scene_001, previous, portrait]
                     if ref_png is None or not ref_png.exists() or prev_png is None or not prev_png.exists():
                         raise RuntimeError(f"Missing references for scene {sid}.")
-                    refs = [portrait_path, prev_png]
+                    refs = [ref_png, prev_png, portrait_path]
+                    prompt = build_edit_prompt(desc=desc, has_portrait=True)
 
-                prompt = build_edit_prompt(desc=desc, style=DEFAULT_STYLE, with_portrait=True)
                 out = run_nano_banana_edit(prompt, refs)
                 mode = "edit"
                 prompt_log[sid] = {
@@ -251,9 +291,10 @@ def main():
                 }
 
             else:
-                # Original flow, no portrait
+                # No portrait flow
                 if i == 1:
-                    prompt = build_t2i_prompt(desc=desc, style=DEFAULT_STYLE)
+                    # Scene 1 without portrait: T2I
+                    prompt = build_scene1_prompt(desc=desc, has_portrait=False)
                     out = run_nano_banana_t2i(prompt)
                     mode = "t2i"
                     prompt_log[sid] = {
@@ -262,6 +303,7 @@ def main():
                         "prompt": prompt,
                     }
                 else:
+                    # Scene 2: [scene_001]; Scene 3+: [scene_001, previous]
                     if i == 2:
                         if ref_png is None or not ref_png.exists():
                             raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
@@ -271,7 +313,7 @@ def main():
                             raise RuntimeError(f"Missing references for scene {sid}.")
                         refs = [ref_png, prev_png]
 
-                    prompt = build_edit_prompt(desc=desc, style=DEFAULT_STYLE, with_portrait=False)
+                    prompt = build_edit_prompt(desc=desc, has_portrait=False)
                     out = run_nano_banana_edit(prompt, refs)
                     mode = "edit"
                     prompt_log[sid] = {
@@ -296,15 +338,7 @@ def main():
             # Manifest
             entry: Dict[str, Any] = {"image_path": str(out_path), "mode": mode}
             if mode == "edit":
-                if portrait_path:
-                    if i == 1:
-                        entry["edit_refs"] = [str(portrait_path)]
-                    elif i == 2:
-                        entry["edit_refs"] = [str(portrait_path), str(ref_png)]
-                    else:
-                        entry["edit_refs"] = [str(portrait_path), str(prev_png)]
-                else:
-                    entry["edit_refs"] = [str(ref_png)] if i == 2 else [str(ref_png), str(prev_png)]
+                entry["edit_refs"] = [str(p) for p in (refs if 'refs' in locals() else [])]
             manifest[sid] = entry
 
         except Exception as e:
