@@ -132,7 +132,7 @@ def _maybe_stage_portrait(job_dir: Path, portrait_path_str: Optional[str]) -> Op
     return staged
 
 
-def _run_make_video(job_dir: Path, audio_src: Path, portrait_staged: Optional[Path] = None) -> Path:
+def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
     pipe_dir = job_dir / "pipeline"
     audio_input_dir = pipe_dir / "audio_input"
     audio_input_dir.mkdir(parents=True, exist_ok=True)
@@ -151,9 +151,11 @@ def _run_make_video(job_dir: Path, audio_src: Path, portrait_staged: Optional[Pa
         if not env.get(key):
             raise RuntimeError(f"Missing required env: {key}")
 
-    # If we have a portrait staged, expose it to the pipeline via env var
-    if portrait_staged is not None:
-        env["PORTRAIT_IMAGE"] = str(portrait_staged)
+    # ✨ NEW: pass portrait path to the pipeline if present
+    portrait = job_dir / "portrait.jpg"   # this is where the web layer saved it
+    if portrait.exists():
+        env["PORTRAIT_REF"] = str(portrait)
+        log(f"Using portrait ref: {portrait}")
 
     cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name]
     run_with_live_output(cmd, cwd=pipe_dir, env=env)
