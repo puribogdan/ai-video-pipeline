@@ -110,37 +110,45 @@ def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 30.0) ->
 
 def _find_portrait_file(job_dir: Path) -> Optional[Path]:
     """
-    Return the first plausible portrait image in the job dir, regardless of filename.
-    We skip the audio file and the copied pipeline folder.
+    Pick the best portrait candidate, regardless of filename:
+      - consider only files in the job root (not inside 'pipeline/')
+      - ignore audio named 'input.*'
+      - accept common image extensions OR MIME type starting with 'image/'
+      - choose the most recently modified valid image
     """
     exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-    for p in sorted(job_dir.iterdir()):
-        if not p.is_file():
-            continue
-        if p.name.startswith("input."):   # skip the uploaded audio (input.mp3 / input.wav etc)
-            continue
-        if p.suffix.lower() in exts and p.stat().st_size > 0:
-            return p
+    candidates: list[Path] = []
 
-    portrait = _find_portrait_file(job_dir)
-    if portrait:
-        log(f"✅ Found portrait: {portrait.resolve()} (size={portrait.stat().st_size} bytes)")
-
-
-
-    # Fallback: check MIME if extensions are odd
-    import mimetypes
-    for p in sorted(job_dir.iterdir()):
+    # First pass: extension-based
+    for p in job_dir.iterdir():
         if not p.is_file():
             continue
         if p.name.startswith("input."):
             continue
-        mt, _ = mimetypes.guess_type(str(p))
-        if mt and mt.startswith("image/") and p.stat().st_size > 0:
-            return p
+        if p.name == "pipeline":
+            continue
+        if p.suffix.lower() in exts and p.stat().st_size > 0:
+            candidates.append(p)
 
-    return None
+    # Second pass: MIME-based (weird extensions)
+    if not candidates:
+        for p in job_dir.iterdir():
+            if not p.is_file():
+                continue
+            if p.name.startswith("input."):
+                continue
+            if p.name == "pipeline":
+                continue
+            mt, _ = mimetypes.guess_type(str(p))
+            if (mt or "").startswith("image/") and p.stat().st_size > 0:
+                candidates.append(p)
 
+    if not candidates:
+        return None
+
+    # newest image wins
+    candidates.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+    return candidates[0]
 
 
 def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
@@ -163,11 +171,11 @@ def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
         if not env.get(key):
             raise RuntimeError(f"Missing required env: {key}")
 
-    # If a portrait exists, pass it through as PORTRAIT_PATH so generate_images_flux_schnell.py can use it.
+    # If a portrait exists, pass it through as PORTRAIT_PATH
     portrait = _find_portrait_file(job_dir)
     if portrait:
-        env["PORTRAIT_PATH"] = str(portrait)
-        log(f"Staging portrait for pipeline: {portrait}")
+        env["PORTRAIT_PATH"] = str(portrait.resolve())
+        log(f"✅ Found portrait: {portrait.resolve()} (size={portrait.stat().st_size} bytes)")
 
     # Optional: pass any trim extra args if you use them
     trim_extra = os.getenv("TRIM_EXTRA_ARGS", "").strip()
@@ -195,7 +203,7 @@ def process_job(job_id: str, email: str, upload_path: str) -> Dict[str, str]:
                 f.write(b"\x00")
         out = MEDIA_DIR / f"{job_id}.mp4"
         shutil.copy2(placeholder, out)
-        video_url = f"{BASE_URL}/media/{job_id}.mp4"
+        video_url = f"{BASE_URL}/media/{job_id}.mp4}"
         send_link_email(email, video_url, job_id)
         return {"status": "done", "video_url": video_url}
 

@@ -12,9 +12,10 @@
 # - Saves native PNGs, logs prompts to scenes/prompt.json
 
 from __future__ import annotations
-import os, io, sys, json, argparse, contextlib, time
+import os, io, sys, json, argparse, contextlib, time, hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from shutil import copy2
 
 import requests
 from dotenv import load_dotenv
@@ -114,6 +115,13 @@ def save_png_no_resize(path: Path, img_bytes: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     im.save(path, format="PNG")
 
+def _sha12(path: Path) -> str:
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()[:12]
+
 # -------------------- Prompt builders --------------------
 def build_t2i_prompt(desc: str, style: str) -> str:
     return f"{desc}\n{style}"
@@ -175,23 +183,25 @@ def main():
     portrait_env = os.getenv("PORTRAIT_PATH", "").strip()
     portrait_path: Optional[Path] = None
     if portrait_env:
-        pp = Path(portrait_env)
-        if pp.exists() and pp.is_file():
-            portrait_path = pp
-            print(f"👤 Using portrait reference: {portrait_path}")
+        src = Path(portrait_env)
+        if src.exists() and src.is_file():
+            # Copy into scenes with a stable name so refs are local & unambiguous
+            SCENES_DIR.mkdir(parents=True, exist_ok=True)
+            portrait_local = SCENES_DIR / ("portrait_ref" + src.suffix.lower())
+            copy2(src, portrait_local)
+            portrait_path = portrait_local
+            print(f"👤 Using portrait reference: {portrait_path} (size={portrait_path.stat().st_size} sha1={_sha12(portrait_path)})")
         else:
-            print(f"⚠️ PORTRAIT_PATH set but file not found: {pp}")
+            print(f"⚠️ PORTRAIT_PATH set but file not found: {src}")
 
     scenes = load_scenes()
     if args.limit is not None:
         scenes = scenes[:max(1, args.limit)]
 
-    # Strategy log
+    print("🖼️  model=google/nano-banana")
     if portrait_path:
-        print("🖼️  model=google/nano-banana")
         print("   strategy: scene_001 = EDIT [portrait], others = EDIT [portrait, previous]")
     else:
-        print("🖼️  model=google/nano-banana")
         print("   strategy: scene_001 = T2I, scene_002 = EDIT [scene_001], scene_003+ = EDIT [scene_001, previous]")
     print(f"   frames: {len(scenes)} (limit={'all' if args.limit is None else args.limit}), force={DEFAULT_FORCE}")
 
@@ -236,7 +246,8 @@ def main():
                     "mode": mode,
                     "model": NANO_BANANA_MODEL,
                     "prompt": prompt,
-                    "references": ", ".join([p.name if isinstance(p, Path) else str(p) for p in refs]),
+                    "references": ", ".join([Path(r).name if isinstance(r, (Path,)) else str(r) for r in refs]),
+                    "references_abs": ", ".join([str(r) for r in refs]),
                 }
 
             else:
@@ -267,7 +278,8 @@ def main():
                         "mode": mode,
                         "model": NANO_BANANA_MODEL,
                         "prompt": prompt,
-                        "references": ", ".join([p.name for p in refs]),
+                        "references": ", ".join([Path(r).name for r in refs]),
+                        "references_abs": ", ".join([str(r) for r in refs]),
                     }
 
             data = outputs_to_image_bytes(out)
@@ -285,7 +297,6 @@ def main():
             entry: Dict[str, Any] = {"image_path": str(out_path), "mode": mode}
             if mode == "edit":
                 if portrait_path:
-                    # What refs we actually used for this scene
                     if i == 1:
                         entry["edit_refs"] = [str(portrait_path)]
                     elif i == 2:
