@@ -17,7 +17,6 @@ load_dotenv()
 APP_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SRC = APP_ROOT / "pipeline"
 MEDIA_DIR = APP_ROOT / "media"
-# ⚠️ Read uploads from /tmp (matches main.py)
 UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/tmp/uploads"))
 BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
 
@@ -38,7 +37,6 @@ def _copy_pipeline_to(job_dir: Path) -> None:
 
 
 def ensure_mp3(src_path: Path) -> Path:
-    """If src is MP3, return it. Otherwise convert to MP3 with ffmpeg and return new path."""
     mt, _ = mimetypes.guess_type(str(src_path))
     is_mp3 = (src_path.suffix.lower() == ".mp3") or (mt == "audio/mpeg")
     if is_mp3:
@@ -61,7 +59,6 @@ def ensure_mp3(src_path: Path) -> Path:
 
 
 def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
-    """Run a subprocess, stream stdout to logs, and keep a tail buffer for errors."""
     log(f"RUN (cwd={cwd}): {' '.join(cmd)}")
     proc = subprocess.Popen(
         cmd,
@@ -74,7 +71,7 @@ def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
         errors="replace",
     )
     assert proc.stdout is not None
-    tail = deque(maxlen=200)  # keep last 200 lines
+    tail = deque(maxlen=200)
     for line in proc.stdout:
         print(line, end="", flush=True)
         tail.append(line.rstrip())
@@ -86,103 +83,97 @@ def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
         )
 
 
-def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 30.0) -> Path:
-    """Wait for the uploaded file to be visible; fall back to globbing input.* in job dir."""
+def _listdir_safe(p: Path) -> list[str]:
+    try:
+        return sorted([x.name for x in p.iterdir()])
+    except Exception:
+        return []
+
+
+def _find_any_audio(job_dir: Path) -> Optional[Path]:
+    # Priority: common audio extensions
+    audio_exts = (".mp3", ".wav", ".m4a", ".aac", ".ogg")
+    for ext in audio_exts:
+        for f in sorted(job_dir.glob(f"*{ext}")):
+            if f.is_file() and f.stat().st_size > 0:
+                return f
+    # MIME fallback
+    for f in sorted(job_dir.glob("*")):
+        if f.is_file():
+            mt, _ = mimetypes.guess_type(str(f))
+            if mt and mt.startswith("audio/") and f.stat().st_size > 0:
+                return f
+    return None
+
+
+def _wait_for_any_audio(job_id: str, hint_path: Optional[Path], timeout_s: float = 180.0) -> Path:
     t0 = time.time()
     job_dir = UPLOADS_DIR / job_id
-    last_listing: Optional[list[str]] = None
-
+    log(f"wait_for_audio: job_dir={job_dir}, hint={hint_path}")
     while time.time() - t0 < timeout_s:
-        if upload_path.exists():
-            return upload_path
-        if job_dir.exists():
-            candidates = sorted(job_dir.glob("input.*"))
-            if candidates:
-                return candidates[0]
-            last_listing = [p.name for p in job_dir.glob("*")]
-        time.sleep(0.2)
-
-    listing = last_listing if last_listing is not None else (
-        [p.name for p in job_dir.glob("*")] if job_dir.exists() else []
-    )
-    raise RuntimeError(f"Uploaded audio missing. Expected {upload_path}. Job dir listing: {listing}")
+        # Exact hint first
+        if hint_path and hint_path.exists() and hint_path.stat().st_size > 0:
+            log(f"wait_for_audio: found hint {hint_path} ({hint_path.stat().st_size} bytes)")
+            return hint_path
+        # Any audio
+        found = _find_any_audio(job_dir) if job_dir.exists() else None
+        if found:
+            log(f"wait_for_audio: discovered audio {found} ({found.stat().st_size} bytes)")
+            return found
+        if int(time.time() - t0) % 3 == 0:
+            log(f"wait_for_audio: waiting… listing={_listdir_safe(job_dir)}")
+        time.sleep(0.25)
+    raise RuntimeError(f"Audio not found in {job_dir}. Listing: {_listdir_safe(job_dir)}")
 
 
 def _find_portrait_file(job_dir: Path) -> Optional[Path]:
-    """
-    Pick the best portrait candidate, regardless of filename:
-      - consider only files in the job root (not inside 'pipeline/')
-      - ignore audio named 'input.*'
-      - accept common image extensions OR MIME type starting with 'image/'
-      - choose the most recently modified valid image
-    """
     exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-    candidates: list[Path] = []
-
-    # First pass: extension-based
-    for p in job_dir.iterdir():
+    for p in sorted(job_dir.iterdir()):
+        if p.is_file() and p.suffix.lower() in exts and p.stat().st_size > 0:
+            log(f"portrait pick (ext): {p.resolve()} ({p.stat().st_size} bytes)")
+            return p
+    for p in sorted(job_dir.iterdir()):  # MIME fallback
         if not p.is_file():
             continue
-        if p.name.startswith("input."):
-            continue
-        if p.name == "pipeline":
-            continue
-        if p.suffix.lower() in exts and p.stat().st_size > 0:
-            candidates.append(p)
-
-    # Second pass: MIME-based (weird extensions)
-    if not candidates:
-        for p in job_dir.iterdir():
-            if not p.is_file():
-                continue
-            if p.name.startswith("input."):
-                continue
-            if p.name == "pipeline":
-                continue
-            mt, _ = mimetypes.guess_type(str(p))
-            if (mt or "").startswith("image/") and p.stat().st_size > 0:
-                candidates.append(p)
-
-    if not candidates:
-        return None
-
-    # newest image wins
-    candidates.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-    return candidates[0]
+        mt, _ = mimetypes.guess_type(str(p))
+        if mt and mt.startswith("image/") and p.stat().st_size > 0:
+            log(f"portrait pick (mime): {p.resolve()} ({p.stat().st_size} bytes)")
+            return p
+    return None
 
 
-def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
+def _run_make_video(job_dir: Path, hint_audio: Optional[Path]) -> Path:
+    # 1) Wait for any audio (any filename)
+    audio_src = _wait_for_any_audio(job_id=job_dir.name, hint_path=hint_audio)
+
+    # 2) Copy pipeline after we have audio
+    _copy_pipeline_to(job_dir)
     pipe_dir = job_dir / "pipeline"
     audio_input_dir = pipe_dir / "audio_input"
     audio_input_dir.mkdir(parents=True, exist_ok=True)
 
-    # Ensure the uploaded audio exists (wait + fallback)
-    audio_src = _wait_for_upload(job_id=job_dir.name, upload_path=audio_src)
-
-    # Ensure MP3 for the pipeline
+    # 3) Ensure MP3 into pipeline as input.mp3 (internal contract)
     audio_for_pipeline = ensure_mp3(audio_src)
-
     target_audio = audio_input_dir / "input.mp3"
     shutil.copy2(audio_for_pipeline, target_audio)
+    log(f"Staged audio -> {target_audio} ({target_audio.stat().st_size} bytes)")
 
-    # Base env (validate required)
+    # 4) Env
     env = os.environ.copy()
     for key in REQUIRED_ENV:
         if not env.get(key):
             raise RuntimeError(f"Missing required env: {key}")
 
-    # If a portrait exists, pass it through as PORTRAIT_PATH
     portrait = _find_portrait_file(job_dir)
     if portrait:
-        env["PORTRAIT_PATH"] = str(portrait.resolve())
-        log(f"✅ Found portrait: {portrait.resolve()} (size={portrait.stat().st_size} bytes)")
+        env["PORTRAIT_PATH"] = str(portrait)
+        log(f"Staging portrait via PORTRAIT_PATH={portrait}")
 
-    # Optional: pass any trim extra args if you use them
     trim_extra = os.getenv("TRIM_EXTRA_ARGS", "").strip()
     if trim_extra:
         env["TRIM_EXTRA_ARGS"] = trim_extra
 
-    # Run the pipeline
+    # 5) Run
     cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name]
     run_with_live_output(cmd, cwd=pipe_dir, env=env)
 
@@ -193,7 +184,6 @@ def _run_make_video(job_dir: Path, audio_src: Path) -> Path:
 
 
 def process_job(job_id: str, email: str, upload_path: str) -> Dict[str, str]:
-    # quick fake mode for fast testing
     if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
         MEDIA_DIR.mkdir(parents=True, exist_ok=True)
         placeholder = APP_ROOT / "app" / "static" / "sample.mp4"
@@ -210,16 +200,10 @@ def process_job(job_id: str, email: str, upload_path: str) -> Dict[str, str]:
     job_dir = UPLOADS_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    src_audio = Path(upload_path)
+    hint_audio = Path(upload_path) if upload_path else None
+    log(f"job dir initial listing {job_dir}: {_listdir_safe(job_dir)}")
 
-    _copy_pipeline_to(job_dir)
-    # Debug listing before waiting
-    try:
-        log(f"job dir pre-wait listing {job_dir}: {[p.name for p in job_dir.glob('*')]}")
-    except Exception:
-        pass
-
-    final_video = _run_make_video(job_dir, src_audio)
+    final_video = _run_make_video(job_dir, hint_audio)
 
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     public_path = MEDIA_DIR / f"{job_id}.mp4"
