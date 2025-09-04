@@ -109,12 +109,38 @@ def _wait_for_upload(job_id: str, upload_path: Path, timeout_s: float = 30.0) ->
 
 
 def _find_portrait_file(job_dir: Path) -> Optional[Path]:
-    """Return the first portrait file if present (as saved by main.py), else None."""
-    for name in ("portrait.png", "portrait.jpg", "portrait.jpeg", "portrait.webp"):
-        p = job_dir / name
-        if p.exists() and p.is_file() and p.stat().st_size > 0:
+    """
+    Return the first plausible portrait image in the job dir, regardless of filename.
+    We skip the audio file and the copied pipeline folder.
+    """
+    exts = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+    for p in sorted(job_dir.iterdir()):
+        if not p.is_file():
+            continue
+        if p.name.startswith("input."):   # skip the uploaded audio (input.mp3 / input.wav etc)
+            continue
+        if p.suffix.lower() in exts and p.stat().st_size > 0:
             return p
+
+    portrait = _find_portrait_file(job_dir)
+    if portrait:
+        log(f"✅ Found portrait: {portrait.resolve()} (size={portrait.stat().st_size} bytes)")
+
+
+
+    # Fallback: check MIME if extensions are odd
+    import mimetypes
+    for p in sorted(job_dir.iterdir()):
+        if not p.is_file():
+            continue
+        if p.name.startswith("input."):
+            continue
+        mt, _ = mimetypes.guess_type(str(p))
+        if mt and mt.startswith("image/") and p.stat().st_size > 0:
+            return p
+
     return None
+
 
 
 def _run_make_video(job_dir: Path, audio_src: Path) -> Path:

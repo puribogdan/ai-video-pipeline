@@ -24,4 +24,6 @@ librosa
 soundfile
 noisereduce
 pyloudnorm
-webrtcvad
+# VAD
+webrtcvad-wheels; platform_system == "Windows"
+webrtcvad; platform_system != "Windows"
