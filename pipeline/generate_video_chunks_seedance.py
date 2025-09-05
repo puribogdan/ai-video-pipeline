@@ -1,4 +1,4 @@
-# generate_video_chunks_seedance.py — Image→Video per scene (Seedance), gap-filled to next scene start
+# generate_video_chunks_seedance.py — Image→Video per scene (Seedance), over-generate by +1s and hard-trim
 from __future__ import annotations
 import os, sys, json, math, tempfile, uuid, io, time
 from pathlib import Path
@@ -8,14 +8,13 @@ import PIL.Image
 if not hasattr(PIL.Image, "ANTIALIAS"):  # Pillow >=10
     PIL.Image.ANTIALIAS = PIL.Image.Resampling.LANCZOS
 
-
 import requests
 from tqdm import tqdm
 from dotenv import load_dotenv
 import replicate
 
-# Post-process: TRIM if long, PAD with subtle Ken Burns if short (local, no extra API)
-from moviepy.editor import VideoFileClip, ImageClip, concatenate_videoclips
+# Only trimming now (no padding / Ken Burns)
+from moviepy.editor import VideoFileClip
 
 ROOT = Path(__file__).parent
 SCRIPT_PATH = ROOT / "scripts" / "input_script.json"
@@ -119,7 +118,7 @@ def _fileoutput_to_bytes(obj: Any) -> Optional[bytes]:
     return None
 
 def outputs_to_video_bytes(out: Any) -> Optional[bytes]:
-    if isinstance(out, str) and out.startswith(("http://", "https://")):
+    if isinstance(out, str) and startswith := out.startswith(("http://", "https://")):
         try: return _download_bytes(out)
         except Exception: pass
     if isinstance(out, (list, tuple)):
@@ -146,6 +145,10 @@ def write_bytes(path: Path, data: bytes):
 
 # ---------- Seedance call ----------
 def try_seedance(model: str, image_path: Path, prompt: str, duration_s: int, resolution: str, fps: int):
+    """
+    Call Seedance with desired duration. If API insists on 5s/10s, we CEIL to the next allowed
+    value so the result is never shorter than requested (no retries/padding later).
+    """
     def _run(dur: int):
         with open(image_path, "rb") as f:
             return replicate.run(
@@ -153,7 +156,7 @@ def try_seedance(model: str, image_path: Path, prompt: str, duration_s: int, res
                 input={
                     "prompt": prompt,
                     "image": f,
-                    "duration": int(dur),   # Seedance expects whole seconds (often 5 or 10)
+                    "duration": int(dur),
                     "resolution": resolution,
                     "fps": int(fps),
                 },
@@ -162,49 +165,49 @@ def try_seedance(model: str, image_path: Path, prompt: str, duration_s: int, res
         return _run(duration_s)
     except replicate.exceptions.ReplicateError as e:
         msg = str(e).lower()
+        # Some Seedance deployments only accept 5 or 10 secs — choose the CEILING, not nearest.
         if "duration" in msg and ("5" in msg or "10" in msg or "must be" in msg):
-            nearest = 5 if abs(duration_s - 5) <= abs(duration_s - 10) else 10
-            return _run(nearest)
+            if duration_s <= 5:
+                fixed = 5
+            elif duration_s <= 10:
+                fixed = 10
+            else:
+                # If ever extended to 15 etc, you could math.ceil to nearest 5; for now cap at 10
+                fixed = 10
+            return _run(fixed)
         raise
 
-# ---------- Trim-or-Pad to target (pad = subtle Ken Burns tail) ----------
-def trim_or_pad(src_path: Path, dst_path: Path, target_sec: float, fps: int) -> float:
+# ---------- Trim to target (no padding, no zoom) ----------
+def trim_to_target(src_path: Path, dst_path: Path, target_sec: float, fps: int) -> float:
     """
-    If raw >= target → trim.
-    If raw < target → extend with a slight animated last-frame pad (no API cost).
-    Returns raw duration.
+    Open the raw clip and trim to exactly target_sec. If the raw clip is (unexpectedly) shorter,
+    we just write it through as-is (no padding, per your requirement).
+    Returns the raw duration.
     """
     clip = VideoFileClip(str(src_path), audio=False)
     try:
         cur = float(clip.duration or 0.0)
-        if abs(cur - target_sec) < (0.5 / float(clip.fps or fps)):
-            # close & replace as-is
-            clip.close()
-            safe_replace(src_path, dst_path)
-            return cur
-
-        if cur > target_sec:
+        if cur >= target_sec:
             fixed = clip.subclip(0, target_sec)
+            try:
+                fixed.write_videofile(
+                    str(dst_path),
+                    fps=int(clip.fps or fps),
+                    codec="libx264",
+                    audio=False,
+                    preset="medium",
+                    threads=2,
+                    verbose=False,
+                    logger=None,
+                    ffmpeg_params=["-movflags", "+faststart"],
+                )
+            finally:
+                try: fixed.close()
+                except Exception: pass
         else:
-            # need to extend by deficit
-            deficit = target_sec - cur
-            t_last = max(cur - 1.0 / max(clip.fps or fps, 1), 0.0)
-            frame = clip.get_frame(t_last)
-
-            # very subtle Ken Burns: ~3% zoom over the deficit
-            def scale(t):
-                return 1.0 + 0.03 * (t / max(deficit, 1e-6))
-
-            pad = (
-                ImageClip(frame)
-                .resize(scale)
-                .set_duration(deficit)
-                .set_fps(clip.fps or fps)
-            )
-            fixed = concatenate_videoclips([clip, pad], method="compose")
-
-        try:
-            fixed.write_videofile(
+            # You said this will never happen; if it does, we just pass it through.
+            # (No Ken Burns, no retries.)
+            clip.write_videofile(
                 str(dst_path),
                 fps=int(clip.fps or fps),
                 codec="libx264",
@@ -215,20 +218,12 @@ def trim_or_pad(src_path: Path, dst_path: Path, target_sec: float, fps: int) -> 
                 logger=None,
                 ffmpeg_params=["-movflags", "+faststart"],
             )
-        finally:
-            try:
-                fixed.close()
-            except Exception:
-                pass
-
         return cur
     finally:
-        try:
-            clip.close()
-        except Exception:
-            pass
+        try: clip.close()
+        except Exception: pass
 
-# ---------- Effective target computation (fill gaps; scene 1 starts at 0.0) ----------
+# ---------- Effective target computation ----------
 def effective_target_for_scene(i: int, scenes: List[Dict[str, Any]]) -> float:
     """
     Scene i (0-based): target duration = (next_start - virtual_start)
@@ -241,7 +236,6 @@ def effective_target_for_scene(i: int, scenes: List[Dict[str, Any]]) -> float:
     if i + 1 < n:
         next_start = float(scenes[i + 1]["start_time"])
     else:
-        # last scene: fall back to its own end_time (or customize to your audio length)
         next_start = float(s["end_time"])
     target = max(0.1, next_start - virtual_start)
     return target
@@ -253,7 +247,7 @@ def main():
         print("ERROR: Missing REPLICATE_API_TOKEN in .env", file=sys.stderr)
         sys.exit(1)
 
-    ap = argparse.ArgumentParser(description="Image→Video per scene via Seedance-1-Lite (Replicate), gap-filled to next scene start.")
+    ap = argparse.ArgumentParser(description="Image→Video per scene via Seedance-1-Lite (Replicate), over-generate +1s and trim.")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--resolution", default=DEFAULT_RESOLUTION, help="540p, 720p, 1080p")
     ap.add_argument("--fps", type=int, default=DEFAULT_FPS)
@@ -265,7 +259,7 @@ def main():
     if args.limit:
         scenes = scenes[:max(1, args.limit)]
 
-    print("  Strategy: Scene 1 starts at 0.0; each scene extends to NEXT start_time (no timeline gaps).")
+    print("  Strategy: Over-generate by +1s, then hard-trim to each scene's exact target (no padding).")
     print(f"🎬 Seedance I2V | res={args.resolution} | fps={args.fps} | scenes={len(scenes)}")
 
     for i, s in enumerate(tqdm(scenes, desc="I2V"), start=1):
@@ -280,9 +274,13 @@ def main():
         if not img_path.exists():
             raise FileNotFoundError(f"Missing start frame image: {img_path}")
 
-        # Effective target: from virtual_start (0 for first scene) to next scene's start_time
+        # Exact target duration for the scene
         target = effective_target_for_scene(idx, scenes)
-        request_int = max(2, int(math.ceil(target)))  # over-generate (ceil)
+
+        # Always ask Seedance for +1s longer than needed (ceil to avoid too short),
+        # e.g. target=4.2 -> desired=6 (ceil to 5 then +1 -> 6; but API might force 5 or 10)
+        desired = int(math.ceil(target)) + 1
+        request_int = max(2, desired)
 
         scene_text = s.get("scene_description") or s.get("narration") or ""
         prompt = (
@@ -300,10 +298,10 @@ def main():
                 raise RuntimeError(f"No usable video bytes in model output (scene {scene_id}).")
 
             write_bytes(raw_path, data)
-            raw_len = trim_or_pad(raw_path, out_path, target, args.fps)
+            raw_len = trim_to_target(raw_path, out_path, target, args.fps)
             safe_unlink(raw_path)
 
-            print(f"✅ {out_path.name} (target {target:.3f}s, raw {raw_len:.3f}s, req {request_int}s)")
+            print(f"✅ {out_path.name} (target {target:.3f}s, raw {raw_len:.3f}s, requested {request_int}s)")
         except Exception as e:
             print(f"⚠️  Scene {scene_id} failed: {e}")
             try:
