@@ -118,24 +118,32 @@ def _fileoutput_to_bytes(obj: Any) -> Optional[bytes]:
     return None
 
 def outputs_to_video_bytes(out: Any) -> Optional[bytes]:
-    if isinstance(out, str) and startswith := out.startswith(("http://", "https://")):
-        try: return _download_bytes(out)
-        except Exception: pass
+    if isinstance(out, str) and out.startswith(("http://", "https://")):
+        try:
+            return _download_bytes(out)
+        except Exception:
+            pass
     if isinstance(out, (list, tuple)):
         for item in out:
             if isinstance(item, str) and item.startswith(("http://", "https://")):
-                try: return _download_bytes(item)
-                except Exception: continue
+                try:
+                    return _download_bytes(item)
+                except Exception:
+                    continue
             if isinstance(item, (list, tuple, dict)):
                 b = outputs_to_video_bytes(item)
-                if b: return b
+                if b:
+                    return b
             b = _fileoutput_to_bytes(item)
-            if b: return b
+            if b:
+                return b
     if isinstance(out, dict):
         for v in out.values():
             b = outputs_to_video_bytes(v)
-            if b: return b
+            if b:
+                return b
     return _fileoutput_to_bytes(out)
+
 
 def write_bytes(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
