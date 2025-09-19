@@ -12,7 +12,7 @@ from collections import deque
 from dotenv import load_dotenv
 from .email_utils import send_link_email
 
-from b2sdk import B2Api, InMemoryAccountInfo
+from b2sdk.v1 import B2Api, InMemoryAccountInfo
 
 import json
 import tempfile
