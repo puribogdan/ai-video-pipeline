@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from config import settings  # loads .env via pydantic-settings
+from app.worker_tasks import upload_to_b2
 
 # ---------- Paths & constants ----------
 ROOT = Path(__file__).resolve().parent
@@ -230,11 +231,19 @@ def main():
     if not FINAL_VIDEO.exists():
         raise SystemExit("final_video.mp4 not found.")
 
+    log("Uploading to B2...")
+    b2_url = upload_to_b2(job_id, FINAL_VIDEO)
+    if b2_url:
+        log(f"Uploaded to B2: {b2_url}")
+    else:
+        log("B2 upload failed or skipped; using local file.")
+
     meta: Dict[str, object] = {
         "job_id": job_id,
         "audio_selected": str(audio_for_pipeline),
         "final_video": str(FINAL_VIDEO),
         "final_size_bytes": FINAL_VIDEO.stat().st_size,
+        "b2_url": b2_url,
         "started_at": datetime.now().isoformat(timespec="seconds"),
         "finished_at": datetime.now().isoformat(timespec="seconds"),
         "resolution": args.resolution,

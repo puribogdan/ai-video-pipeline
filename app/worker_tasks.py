@@ -49,8 +49,12 @@ def ensure_mp3(src_path: Path) -> Path:
         return src_path
     out_path = src_path.with_suffix(".mp3")
     cmd = ["ffmpeg", "-y", "-i", str(src_path), "-vn", "-acodec", "libmp3lame", "-b:a", "192k", "-ar", "44100", "-ac", "2", str(out_path)]
-    log("Converting to MP3: " + " ".join(cmd))
+    log(f"[LOG] ensure_mp3 input: {src_path} (ext: {src_path.suffix}, size: {src_path.stat().st_size}), cmd: {' '.join(cmd)}")
     subprocess.run(cmd, check=True)
+    out_size = out_path.stat().st_size if out_path.exists() else 0
+    log(f"[LOG] ensure_mp3 output: {out_path} (size: {out_size})")
+    if out_size == 0:
+        raise RuntimeError("Conversion produced empty file")
     return out_path
 
 
@@ -171,20 +175,27 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
     bucket_name = os.getenv("B2_BUCKET_NAME")
     key_id = os.getenv("B2_KEY_ID")
     app_key = os.getenv("B2_APPLICATION_KEY")
-    if not all([bucket_name, key_id, app_key]):
+    if bucket_name is None or key_id is None or app_key is None:
         log("B2 env vars not set; skipping upload.")
         return None
 
+    # Safe logging
     log(f"[DEBUG] B2_KEY_ID length: {len(key_id)}")
     log(f"[DEBUG] B2_APP_KEY length: {len(app_key)}")
     log(f"[DEBUG] B2_KEY_ID prefix: {key_id[:5]}...")
     log(f"[DEBUG] B2_APP_KEY prefix: {app_key[:5]}...")
 
-    try:
-        endpoint = 'https://s3.eu-central-003.backblazeb2.com'
-        region = 'eu-central-003'
-        log(f"[DEBUG] Using endpoint: {endpoint}, region: {region}")
+    local_file = video_path.absolute()
+    file_name = f"final/{job_id}.mp4"
+    log(f"[DEBUG] local_file absolute path: {local_file}")
+    log(f"[DEBUG] file_name in B2: {file_name}")
+    log(f"[DEBUG] file_size: {video_path.stat().st_size} bytes")
 
+    region = os.getenv("B2_REGION", "eu-central-003")
+    endpoint = f'https://s3.{region}.backblazeb2.com'
+    log(f"[DEBUG] Using endpoint: {endpoint}, region: {region}")
+
+    try:
         s3 = boto3.client(
             's3',
             aws_access_key_id=key_id,
@@ -192,44 +203,44 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
             endpoint_url=endpoint,
             region_name=region
         )
+        log("Using S3-compatible boto3 client for Backblaze B2.")
+        log("[DEBUG] S3 client created successfully.")
 
-        # Upload the file
-        log(f"Uploading to B2 S3: local_file={str(video_path)}, file_name={job_id}.mp4, bucket={bucket_name}")
+        # Upload using S3 client (S3-compatible)
+        log(f"[DEBUG] Starting upload...")
         s3.upload_file(
-            str(video_path),
-            bucket_name,
-            f"{job_id}.mp4",
+            Filename=str(local_file),
+            Bucket=bucket_name,
+            Key=file_name,
             ExtraArgs={'ContentType': 'video/mp4'}
         )
+        log("[DEBUG] Upload call completed.")
 
-        # Verify upload by head object
+        # Get ETag from last response (or head for verification)
         try:
-            head = s3.head_object(Bucket=bucket_name, Key=f"{job_id}.mp4")
-            log(f"Upload verified: size={head['ContentLength']} bytes, content_type={head.get('ContentType', 'unknown')}")
+            head = s3.head_object(Bucket=bucket_name, Key=file_name)
+            etag = head.get('ETag', 'unknown')
+            content_type = head.get('ContentType', 'unknown')
+            size = head['ContentLength']
+            log(f"[DEBUG] Upload verified: ETag={etag}, size={size} bytes, content_type={content_type}")
         except ClientError as head_e:
-            log(f"Upload verification failed: {head_e.response['Error']['Code']} - {head_e.response['Error']['Message']}")
-            return None
+            log(f"[DEBUG] Head verification failed: {head_e.response['Error']['Message']}")
 
-        log(f"Upload successful.")
+        log("Upload successful.")
 
-        # For public bucket, construct direct URL
-        video_url = f"https://{bucket_name}.s3.{region}.backblazeb2.com/{job_id}.mp4"
+        # Construct public URL (assuming public bucket)
+        video_url = f"https://{bucket_name}.s3.{region}.backblazeb2.com/{file_name}"
         log(f"Uploaded to B2: {video_url}")
         return video_url
 
     except Exception as e:
         import traceback
         err_msg = str(e)
-        err_response = None
-        if hasattr(e, 'response') and e.response:
-            err_response = e.response
-        elif hasattr(e, '__cause__') and e.__cause__ and hasattr(e.__cause__, 'response') and e.__cause__.response:
-            err_response = e.__cause__.response
-        if err_response and 'Error' in err_response:
-            err_code = err_response['Error']['Code']
-            err_message = err_response['Error']['Message']
+        if isinstance(e, ClientError):
+            err_code = e.response['Error']['Code']
+            err_message = e.response['Error']['Message']
             err_msg += f" | Server: {err_code} - {err_message}"
-        log(f"B2 upload failed (detailed): {type(e).__name__}: {err_msg}")
+        log(f"B2 upload failed: {type(e).__name__}: {err_msg}")
         log(f"Full traceback:\n{traceback.format_exc()}")
         return None
 

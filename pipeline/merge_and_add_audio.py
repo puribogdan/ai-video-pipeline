@@ -21,6 +21,8 @@ def main():
         sys.exit(1)
 
     # Pick audio
+    print(f"[LOG] merge_and_add_audio checking: {AUDIO_TRIMMED} (exists: {AUDIO_TRIMMED.exists()}, size: {AUDIO_TRIMMED.stat().st_size if AUDIO_TRIMMED.exists() else 0}), {AUDIO_ORIG} (exists: {AUDIO_ORIG.exists()}, size: {AUDIO_ORIG.stat().st_size if AUDIO_ORIG.exists() else 0})")
+
     if AUDIO_TRIMMED.exists() and AUDIO_TRIMMED.stat().st_size > 0:
         audio_path = AUDIO_TRIMMED
     elif AUDIO_ORIG.exists() and AUDIO_ORIG.stat().st_size > 0:
@@ -28,6 +30,8 @@ def main():
     else:
         print(f"ERROR: No audio found. Expected {AUDIO_TRIMMED} or {AUDIO_ORIG}", file=sys.stderr)
         sys.exit(1)
+
+    print(f"[LOG] Selected audio: {audio_path} (ext: {audio_path.suffix})")
 
     # Write concat list file for ffmpeg
     LIST_FILE.parent.mkdir(parents=True, exist_ok=True)

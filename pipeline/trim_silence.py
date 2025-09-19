@@ -386,7 +386,13 @@ def main():
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    print(f"[LOG] trim_silence input: {in_path} (exists: {in_path.exists()}, size: {in_path.stat().st_size if in_path.exists() else 0}, ext: {in_path.suffix})")
+
+    if not in_path.exists():
+        raise FileNotFoundError(f"Input audio not found: {in_path}")
+
     audio = AudioSegment.from_file(in_path)
+    print(f"[LOG] Loaded audio: duration {len(audio)/1000:.2f}s, format {audio.frame_rate}Hz {audio.channels}ch {audio.sample_width*8}bit")
 
     # Logs
     print("— Trim settings —")
