@@ -170,8 +170,8 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
 
 
 
-def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
-    """Upload video to Backblaze B2 (S3-compatible) and return public URL, or None on failure."""
+def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) -> Optional[str]:
+    """Upload video and scripts to Backblaze B2 (S3-compatible) and return public URL, or None on failure."""
     bucket_name = os.getenv("B2_BUCKET_NAME")
     key_id = os.getenv("B2_KEY_ID")
     app_key = os.getenv("B2_APPLICATION_KEY")
@@ -186,7 +186,7 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
     log(f"[DEBUG] B2_APP_KEY prefix: {app_key[:5]}...")
 
     local_file = video_path.absolute()
-    file_name = f"final/{job_id}.mp4"
+    file_name = f"exports/{job_id}/final_video.mp4"
     log(f"[DEBUG] local_file absolute path: {local_file}")
     log(f"[DEBUG] file_name in B2: {file_name}")
     log(f"[DEBUG] file_size: {video_path.stat().st_size} bytes")
@@ -216,6 +216,32 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
         )
         log("[DEBUG] Upload call completed.")
 
+        # Upload input_script.json and prompt.json if job_dir provided
+        if job_dir:
+            # Upload input_script.json
+            script_path = job_dir / "pipeline" / "scripts" / "input_script.json"
+            if script_path.exists():
+                script_key = f"exports/{job_id}/input_script.json"
+                s3.upload_file(
+                    str(script_path),
+                    bucket_name,
+                    script_key,
+                    ExtraArgs={'ContentType': 'application/json'}
+                )
+                log(f"Uploaded input_script.json to: {script_key}")
+
+            # Upload existing prompt.json
+            prompt_path = job_dir / "pipeline" / "scenes" / "prompt.json"
+            if prompt_path.exists():
+                prompt_key = f"exports/{job_id}/prompt.json"
+                s3.upload_file(
+                    str(prompt_path),
+                    bucket_name,
+                    prompt_key,
+                    ExtraArgs={'ContentType': 'application/json'}
+                )
+                log(f"Uploaded prompt.json to: {prompt_key}")
+
         # Get ETag from last response (or head for verification)
         try:
             head = s3.head_object(Bucket=bucket_name, Key=file_name)
@@ -229,7 +255,7 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
         log("Upload successful.")
 
         # Construct public URL (assuming public bucket)
-        video_url = f"https://{bucket_name}.s3.{region}.backblazeb2.com/{file_name}"
+        video_url = f"https://{bucket_name}.s3.{region}.backblazeb2.com/exports/{job_id}/final_video.mp4"
         log(f"Uploaded to B2: {video_url}")
         return video_url
 
@@ -272,7 +298,7 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
     shutil.copy2(final_video, public_path)
 
     # Upload to Backblaze B2 (fallback to local if fails)
-    b2_url = upload_to_b2(job_id, public_path)
+    b2_url = upload_to_b2(job_id, public_path, job_dir)
     video_url = b2_url or f"{BASE_URL}/media/{job_id}.mp4"
     send_link_email(email, video_url, job_id)
     return {"status": "done", "video_url": video_url}
