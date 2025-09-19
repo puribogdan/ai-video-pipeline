@@ -178,13 +178,16 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
         info = InMemoryAccountInfo()
         b2_api = B2Api(info)
         b2_api.authorize_account("production", key_id, app_key)
+        log(f"B2 API authorized successfully.")
         bucket = b2_api.get_bucket_by_name(bucket_name)
+        log(f"Bucket fetched: name={bucket.name}, id={bucket.id_}, type={type(bucket)}")
 
         # Upload the file
+        log(f"About to call upload_local_file: local_file={str(video_path)}, file_name={job_id}.mp4, bucket={bucket.name} (id={bucket.id_}), content_type=video/mp4, size={video_path.stat().st_size}")
         b2_api.upload_local_file(
-            bucket_id=bucket.id_,
-            local_file=str(video_path),
-            file_name=f"{job_id}.mp4",
+            str(video_path),
+            f"{job_id}.mp4",
+            bucket,
             content_type="video/mp4",
             upload_file_size=video_path.stat().st_size
         )
@@ -195,7 +198,9 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
         return video_url
 
     except Exception as e:
-        log(f"B2 upload failed: {e}; falling back to local URL.")
+        import traceback
+        log(f"B2 upload failed: {e}")
+        log(f"Full traceback:\n{traceback.format_exc()}")
         return None
 
 
