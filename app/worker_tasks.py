@@ -17,6 +17,9 @@ from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from googleapiclient.http import MediaFileUpload
 
+import json
+import tempfile
+
 load_dotenv()
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -206,6 +209,12 @@ def upload_to_drive(job_id: str, video_path: Path) -> Optional[str]:
 
     except Exception as e:
         log(f"Drive upload failed: {e}; falling back to local URL.")
+        # Clean up if temp file exists
+        if 'tmp_key_path' in locals():
+            try:
+                os.unlink(tmp_key_path)
+            except:
+                pass
         return None
 
 
