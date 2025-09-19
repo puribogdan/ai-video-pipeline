@@ -181,7 +181,8 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
         bucket = b2_api.get_bucket_by_name(bucket_name)
 
         # Upload the file
-        uploaded_file = bucket.upload_local_file(
+        b2_api.upload_local_file(
+            bucket_id=bucket.id_,
             local_file=str(video_path),
             file_name=f"{job_id}.mp4",
             content_type="video/mp4",
