@@ -52,7 +52,7 @@ def _safe_name(name: str) -> str:
     return cleaned[:128]
 
 
-_ALLOWED_STYLES = {"anime", "3d", "kid", "storybook", "fantasy"}
+_ALLOWED_STYLES = {"anime", "3d", "kid", "storybook", "fantasy", "japanese_kawaii", "claymation", "watercolor", "pixel_art", "paper_cutout", "van_gogh", "felt_needle", "stop_motion_felt_clay"}
 
 
 @app.post("/submit", response_class=HTMLResponse)

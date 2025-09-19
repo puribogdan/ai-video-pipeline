@@ -40,6 +40,14 @@ STYLE_LIBRARY: Dict[str, str] = {
     "kid":      "Bright, kid-friendly, simple shapes, bold outlines, soft lighting, playful and cheerful tone",
     "storybook":"Storybook style, hand-drawn textures, watercolor and crayon feel, soft edges, cozy and nostalgic mood",
     "fantasy":  "Whimsical fantasy, glowing colors, sparkles and dreamy lighting, enchanting environments, magical atmosphere",
+    "japanese_kawaii": "A kawaii Japanese chibi-style animation with pastel colors, big sparkly eyes, bouncy playful motion, and simple cozy backgrounds inspired by Sanrio characters.",
+    "claymation": "A whimsical modern claymation-style animation inspired by Tumble Leaf, with hand-crafted textures, soft lighting, smooth stop-motion movement, and a colorful, playful atmosphere.",
+    "watercolor": "A dreamy watercolor-style animation with flowing brushstrokes, soft pastel tones, subtle texture, and gentle hand-painted transitions that feel like a moving storybook.",
+    "pixel_art": "A pixel art animation inspired by Minecraft, with blocky characters and environments, chunky textures, simple lighting, and smooth, playful motion in a colorful 8-bit/voxel style.",
+    "paper_cutout": "A South Park cartoon–style lo-fi animation with flat 2D paper-cutout characters, stiff jerky movements, limited arm/leg motion, simple mouth flaps for speech, and exaggerated head/eye reactions for comedic effect.",
+    "van_gogh": "A Van Gogh–style animation with swirling brushstrokes, bold textures, vivid contrasting colors, and flowing painterly motion that feels alive like a moving canvas.",
+    "felt_needle": "A kawaii stop-motion felt animation with soft fuzzy textures, chubby plush-like characters, pastel colors, and playful handmade charm.",
+    "stop_motion_felt_clay": "A modern stop-motion animation inspired by Pokémon Concierge, with handcrafted felt and clay textures, plush-like characters, detailed miniature sets, soft natural lighting, and a cozy, soothing atmosphere.",
 }
 
 DEFAULT_STYLE_KEY = "kid"  # fallback if env not set
