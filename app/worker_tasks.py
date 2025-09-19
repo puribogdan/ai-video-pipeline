@@ -170,6 +170,16 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
 def upload_to_drive(job_id: str, video_path: Path) -> Optional[str]:
     """Upload video to Google Drive and return shareable URL, or None on failure."""
     folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
+    if folder_id:
+        # Log the exact value to diagnose
+        log(f"Using folder_id: '{folder_id}' (length: {len(folder_id)})")
+        # Check if it looks like a full URL and extract ID if possible
+        if folder_id.startswith("https://drive.google.com/drive/folders/"):
+            extracted_id = folder_id.split("/folders/")[1].split("?")[0].split("&")[0]
+            log(f"Detected full URL; extracted folder ID: '{extracted_id}'")
+            folder_id = extracted_id
+        elif len(folder_id) > 50:  # Suspiciously long for an ID
+            log(f"Warning: folder_id is unusually long; may be a URL.")
     if not folder_id:
         log("GOOGLE_DRIVE_FOLDER_ID env var not set; skipping upload.")
         return None
