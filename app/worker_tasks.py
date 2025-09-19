@@ -12,7 +12,7 @@ from collections import deque
 from dotenv import load_dotenv
 from .email_utils import send_link_email
 
-from b2sdk.v1 import B2Api, InMemoryAccountInfo
+from b2sdk.v2 import B2Api, InMemoryAccountInfo
 
 import json
 import tempfile
@@ -174,8 +174,14 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
         log("B2 env vars not set; skipping upload.")
         return None
 
+    import sys
+    from b2sdk import __version__ as b2sdk_version
+    log(f"[DEBUG] Python version: {sys.version}")
+    log(f"[DEBUG] b2sdk version: {b2sdk_version}")
+
     try:
         info = InMemoryAccountInfo()
+        log("[DEBUG] InMemoryAccountInfo initialized successfully")
         b2_api = B2Api(info)
         b2_api.authorize_account("production", key_id, app_key)
         log(f"B2 API authorized successfully.")
@@ -199,7 +205,7 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
 
     except Exception as e:
         import traceback
-        log(f"B2 upload failed: {e}")
+        log(f"B2 upload failed: {type(e).__name__}: {e}")
         log(f"Full traceback:\n{traceback.format_exc()}")
         return None
 
