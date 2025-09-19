@@ -174,31 +174,28 @@ def upload_to_drive(job_id: str, video_path: Path) -> Optional[str]:
         log("GOOGLE_DRIVE_FOLDER_ID env var not set; skipping upload.")
         return None
 
-    key_path = APP_ROOT / "service-account-key.json"
     json_key_env = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    key_path = APP_ROOT / "service-account-key.json"
     tmp_key_path = None
 
-    use_temp = False
-    if not key_path.exists():
-        log(f"Service account key file not found at {key_path}")
-        if not json_key_env:
-            log("GOOGLE_SERVICE_ACCOUNT_JSON env var not set; skipping upload.")
-            return None
+    if json_key_env:
         log("GOOGLE_SERVICE_ACCOUNT_JSON env var is set; creating temp file for credentials.")
         try:
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
                 tmp.write(json_key_env)
                 tmp_key_path = tmp.name
-            use_temp = True
             log(f"Temp key file created at {tmp_key_path}")
         except Exception as e:
             log(f"Failed to create temp key file: {e}; skipping upload.")
             return None
-    else:
+    elif key_path.exists():
         log(f"Service account key file found at {key_path}")
+    else:
+        log(f"Service account key file not found at {key_path} and no env var; skipping upload.")
+        return None
 
     try:
-        if use_temp:
+        if tmp_key_path:
             creds = Credentials.from_service_account_file(tmp_key_path)
             log("Using temp credentials file for Google Drive auth.")
         else:
