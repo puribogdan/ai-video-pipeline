@@ -12,10 +12,7 @@ from collections import deque
 from dotenv import load_dotenv
 from .email_utils import send_link_email
 
-# Google Drive imports
-from googleapiclient.discovery import build
-from google.oauth2.service_account import Credentials
-from googleapiclient.http import MediaFileUpload
+from b2sdk.v2 import B2Api, InMemoryAccountInfo
 
 import json
 import tempfile
@@ -167,86 +164,38 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
     return final_video
 
 
-def upload_to_drive(job_id: str, video_path: Path) -> Optional[str]:
-    """Upload video to Google Drive and return shareable URL, or None on failure."""
-    folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
-    if folder_id:
-        # Log the exact value to diagnose
-        log(f"Using folder_id: '{folder_id}' (length: {len(folder_id)})")
-        # Check if it looks like a full URL and extract ID if possible
-        if folder_id.startswith("https://drive.google.com/drive/folders/"):
-            extracted_id = folder_id.split("/folders/")[1].split("?")[0].split("&")[0]
-            log(f"Detected full URL; extracted folder ID: '{extracted_id}'")
-            folder_id = extracted_id
-        elif len(folder_id) > 50:  # Suspiciously long for an ID
-            log(f"Warning: folder_id is unusually long; may be a URL.")
-    if not folder_id:
-        log("GOOGLE_DRIVE_FOLDER_ID env var not set; skipping upload.")
-        return None
 
-    json_key_env = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    key_path = APP_ROOT / "service-account-key.json"
-    tmp_key_path = None
-
-    if json_key_env:
-        log("GOOGLE_SERVICE_ACCOUNT_JSON env var is set; creating temp file for credentials.")
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
-                tmp.write(json_key_env)
-                tmp_key_path = tmp.name
-            log(f"Temp key file created at {tmp_key_path}")
-        except Exception as e:
-            log(f"Failed to create temp key file: {e}; skipping upload.")
-            return None
-    elif key_path.exists():
-        log(f"Service account key file found at {key_path}")
-    else:
-        log(f"Service account key file not found at {key_path} and no env var; skipping upload.")
+def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
+    """Upload video to Backblaze B2 and return public URL, or None on failure."""
+    bucket_name = os.getenv("B2_BUCKET_NAME")
+    key_id = os.getenv("B2_KEY_ID")
+    app_key = os.getenv("B2_APPLICATION_KEY")
+    if not all([bucket_name, key_id, app_key]):
+        log("B2 env vars not set; skipping upload.")
         return None
 
     try:
-        if tmp_key_path:
-            creds = Credentials.from_service_account_file(tmp_key_path)
-            log("Using temp credentials file for Google Drive auth.")
-        else:
-            creds = Credentials.from_service_account_file(str(key_path))
-        service = build("drive", "v3", credentials=creds)
+        info = InMemoryAccountInfo()
+        b2_api = B2Api(info)
+        b2_api.authorize_account("production", key_id, app_key)
+        bucket = b2_api.get_bucket_by_name(bucket_name)
 
-        file_metadata = {
-            "name": f"{job_id}.mp4",
-            "parents": [folder_id],
-        }
-        media = MediaFileUpload(str(video_path), mimetype="video/mp4", resumable=True)
-        uploaded_file = (
-            service.files()
-            .create(body=file_metadata, media_body=media, fields="id")
-            .execute()
+        # Upload the file
+        uploaded_file = bucket.upload_local_file(
+            local_file=str(video_path),
+            file_name=f"{job_id}.mp4",
+            content_type="video/mp4",
+            upload_file_size=video_path.stat().st_size
         )
 
-        # Get shareable link
-        file_id = uploaded_file["id"]
-        video_url = f"https://drive.google.com/file/d/{file_id}/view"
-
-        # Set public view permission
-        permission = {"type": "anyone", "role": "reader"}
-        service.permissions().create(
-            fileId=file_id, body=permission
-        ).execute()
-
-        log(f"Uploaded to Drive: {video_url}")
+        # For public bucket, construct direct URL
+        video_url = f"https://f000.backblazeb2.com/file/{bucket_name}/{job_id}.mp4"
+        log(f"Uploaded to B2: {video_url}")
         return video_url
 
     except Exception as e:
-        log(f"Drive upload failed: {e}; falling back to local URL.")
+        log(f"B2 upload failed: {e}; falling back to local URL.")
         return None
-
-    finally:
-        if tmp_key_path and os.path.exists(tmp_key_path):
-            try:
-                os.unlink(tmp_key_path)
-                log("Cleaned up temp key file.")
-            except Exception as e:
-                log(f"Failed to clean up temp key file: {e}")
 
 
 def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[str, str]:
@@ -275,8 +224,8 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
     public_path = MEDIA_DIR / f"{job_id}.mp4"
     shutil.copy2(final_video, public_path)
 
-    # Upload to Google Drive (fallback to local if fails)
-    drive_url = upload_to_drive(job_id, public_path)
-    video_url = drive_url or f"{BASE_URL}/media/{job_id}.mp4"
+    # Upload to Backblaze B2 (fallback to local if fails)
+    b2_url = upload_to_b2(job_id, public_path)
+    video_url = b2_url or f"{BASE_URL}/media/{job_id}.mp4"
     send_link_email(email, video_url, job_id)
     return {"status": "done", "video_url": video_url}
