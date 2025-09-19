@@ -5,3 +5,4 @@ uploads/
 media/
 *.pyc
 old_files
+service-account-key.json

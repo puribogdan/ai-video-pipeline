@@ -12,7 +12,6 @@ python-dotenv==1.0.1
 resend==2.2.0
 openai>=1.40.0
 replicate==1.0.7
-audioop-lts
 tenacity==8.5.0
 Pillow==10.4.0
 moviepy==1.0.3
@@ -27,3 +26,6 @@ pyloudnorm
 # VAD
 webrtcvad-wheels; platform_system == "Windows"
 webrtcvad; platform_system != "Windows"
+google-api-python-client>=2.0.0
+google-auth>=2.0.0
+google-auth-httplib2>=0.1.0

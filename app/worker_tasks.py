@@ -12,6 +12,11 @@ from collections import deque
 from dotenv import load_dotenv
 from .email_utils import send_link_email
 
+# Google Drive imports
+from googleapiclient.discovery import build
+from google.oauth2.service_account import Credentials
+from googleapiclient.http import MediaFileUpload
+
 load_dotenv()
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -159,6 +164,51 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
     return final_video
 
 
+def upload_to_drive(job_id: str, video_path: Path) -> Optional[str]:
+    """Upload video to Google Drive and return shareable URL, or None on failure."""
+    folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
+    if not folder_id:
+        log("GOOGLE_DRIVE_FOLDER_ID env var not set; skipping upload.")
+        return None
+
+    key_path = APP_ROOT / "service-account-key.json"
+    if not key_path.exists():
+        log(f"Service account key not found at {key_path}; skipping upload.")
+        return None
+
+    try:
+        creds = Credentials.from_service_account_file(str(key_path))
+        service = build("drive", "v3", credentials=creds)
+
+        file_metadata = {
+            "name": f"{job_id}.mp4",
+            "parents": [folder_id],
+        }
+        media = MediaFileUpload(str(video_path), mimetype="video/mp4", resumable=True)
+        uploaded_file = (
+            service.files()
+            .create(body=file_metadata, media_body=media, fields="id")
+            .execute()
+        )
+
+        # Get shareable link
+        file_id = uploaded_file["id"]
+        video_url = f"https://drive.google.com/file/d/{file_id}/view"
+
+        # Set public view permission
+        permission = {"type": "anyone", "role": "reader"}
+        service.permissions().create(
+            fileId=file_id, body=permission
+        ).execute()
+
+        log(f"Uploaded to Drive: {video_url}")
+        return video_url
+
+    except Exception as e:
+        log(f"Drive upload failed: {e}; falling back to local URL.")
+        return None
+
+
 def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[str, str]:
     if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
         MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -185,6 +235,8 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
     public_path = MEDIA_DIR / f"{job_id}.mp4"
     shutil.copy2(final_video, public_path)
 
-    video_url = f"{BASE_URL}/media/{job_id}.mp4"
+    # Upload to Google Drive (fallback to local if fails)
+    drive_url = upload_to_drive(job_id, public_path)
+    video_url = drive_url or f"{BASE_URL}/media/{job_id}.mp4"
     send_link_email(email, video_url, job_id)
     return {"status": "done", "video_url": video_url}
