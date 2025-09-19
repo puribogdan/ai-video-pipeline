@@ -175,12 +175,34 @@ def upload_to_drive(job_id: str, video_path: Path) -> Optional[str]:
         return None
 
     key_path = APP_ROOT / "service-account-key.json"
+    json_key_env = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+    tmp_key_path = None
+
+    use_temp = False
     if not key_path.exists():
-        log(f"Service account key not found at {key_path}; skipping upload.")
-        return None
+        log(f"Service account key file not found at {key_path}")
+        if not json_key_env:
+            log("GOOGLE_SERVICE_ACCOUNT_JSON env var not set; skipping upload.")
+            return None
+        log("GOOGLE_SERVICE_ACCOUNT_JSON env var is set; creating temp file for credentials.")
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
+                tmp.write(json_key_env)
+                tmp_key_path = tmp.name
+            use_temp = True
+            log(f"Temp key file created at {tmp_key_path}")
+        except Exception as e:
+            log(f"Failed to create temp key file: {e}; skipping upload.")
+            return None
+    else:
+        log(f"Service account key file found at {key_path}")
 
     try:
-        creds = Credentials.from_service_account_file(str(key_path))
+        if use_temp:
+            creds = Credentials.from_service_account_file(tmp_key_path)
+            log("Using temp credentials file for Google Drive auth.")
+        else:
+            creds = Credentials.from_service_account_file(str(key_path))
         service = build("drive", "v3", credentials=creds)
 
         file_metadata = {
@@ -209,13 +231,15 @@ def upload_to_drive(job_id: str, video_path: Path) -> Optional[str]:
 
     except Exception as e:
         log(f"Drive upload failed: {e}; falling back to local URL.")
-        # Clean up if temp file exists
-        if 'tmp_key_path' in locals():
+        return None
+
+    finally:
+        if tmp_key_path and os.path.exists(tmp_key_path):
             try:
                 os.unlink(tmp_key_path)
-            except:
-                pass
-        return None
+                log("Cleaned up temp key file.")
+            except Exception as e:
+                log(f"Failed to clean up temp key file: {e}")
 
 
 def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[str, str]:
