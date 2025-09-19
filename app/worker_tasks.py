@@ -12,7 +12,8 @@ from collections import deque
 from dotenv import load_dotenv
 from .email_utils import send_link_email
 
-from b2sdk.v2 import B2Api, InMemoryAccountInfo
+import boto3
+from botocore.exceptions import ClientError
 
 import json
 import tempfile
@@ -166,7 +167,7 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
 
 
 def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
-    """Upload video to Backblaze B2 and return public URL, or None on failure."""
+    """Upload video to Backblaze B2 (S3-compatible) and return public URL, or None on failure."""
     bucket_name = os.getenv("B2_BUCKET_NAME")
     key_id = os.getenv("B2_KEY_ID")
     app_key = os.getenv("B2_APPLICATION_KEY")
@@ -174,38 +175,61 @@ def upload_to_b2(job_id: str, video_path: Path) -> Optional[str]:
         log("B2 env vars not set; skipping upload.")
         return None
 
-    import sys
-    from b2sdk import __version__ as b2sdk_version
-    log(f"[DEBUG] Python version: {sys.version}")
-    log(f"[DEBUG] b2sdk version: {b2sdk_version}")
+    log(f"[DEBUG] B2_KEY_ID length: {len(key_id)}")
+    log(f"[DEBUG] B2_APP_KEY length: {len(app_key)}")
+    log(f"[DEBUG] B2_KEY_ID prefix: {key_id[:5]}...")
+    log(f"[DEBUG] B2_APP_KEY prefix: {app_key[:5]}...")
 
     try:
-        info = InMemoryAccountInfo()
-        log("[DEBUG] InMemoryAccountInfo initialized successfully")
-        b2_api = B2Api(info)
-        b2_api.authorize_account("production", key_id, app_key)
-        log(f"B2 API authorized successfully.")
-        bucket = b2_api.get_bucket_by_name(bucket_name)
-        log(f"Bucket fetched: name={bucket.name}, id={bucket.id_}, type={type(bucket)}")
+        endpoint = 'https://s3.eu-central-003.backblazeb2.com'
+        region = 'eu-central-003'
+        log(f"[DEBUG] Using endpoint: {endpoint}, region: {region}")
 
-        # Upload the file
-        log(f"About to call upload_local_file: local_file={str(video_path)}, file_name={job_id}.mp4, bucket={bucket.name} (id={bucket.id_}), content_type=video/mp4, size={video_path.stat().st_size}")
-        b2_api.upload_local_file(
-            str(video_path),
-            f"{job_id}.mp4",
-            bucket,
-            content_type="video/mp4",
-            upload_file_size=video_path.stat().st_size
+        s3 = boto3.client(
+            's3',
+            aws_access_key_id=key_id,
+            aws_secret_access_key=app_key,
+            endpoint_url=endpoint,
+            region_name=region
         )
 
+        # Upload the file
+        log(f"Uploading to B2 S3: local_file={str(video_path)}, file_name={job_id}.mp4, bucket={bucket_name}")
+        s3.upload_file(
+            str(video_path),
+            bucket_name,
+            f"{job_id}.mp4",
+            ExtraArgs={'ContentType': 'video/mp4'}
+        )
+
+        # Verify upload by head object
+        try:
+            head = s3.head_object(Bucket=bucket_name, Key=f"{job_id}.mp4")
+            log(f"Upload verified: size={head['ContentLength']} bytes, content_type={head.get('ContentType', 'unknown')}")
+        except ClientError as head_e:
+            log(f"Upload verification failed: {head_e.response['Error']['Code']} - {head_e.response['Error']['Message']}")
+            return None
+
+        log(f"Upload successful.")
+
         # For public bucket, construct direct URL
-        video_url = f"https://f000.backblazeb2.com/file/{bucket_name}/{job_id}.mp4"
+        video_url = f"https://{bucket_name}.s3.{region}.backblazeb2.com/{job_id}.mp4"
         log(f"Uploaded to B2: {video_url}")
         return video_url
 
     except Exception as e:
         import traceback
-        log(f"B2 upload failed: {type(e).__name__}: {e}")
+        err_msg = str(e)
+        err_response = None
+        if hasattr(e, 'response') and e.response:
+            err_response = e.response
+        elif hasattr(e, '__cause__') and e.__cause__ and hasattr(e.__cause__, 'response') and e.__cause__.response:
+            err_response = e.__cause__.response
+        if err_response and 'Error' in err_response:
+            err_code = err_response['Error']['Code']
+            err_message = err_response['Error']['Message']
+            err_msg += f" | Server: {err_code} - {err_message}"
+        log(f"B2 upload failed (detailed): {type(e).__name__}: {err_msg}")
         log(f"Full traceback:\n{traceback.format_exc()}")
         return None
 
