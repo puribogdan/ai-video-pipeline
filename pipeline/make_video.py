@@ -34,7 +34,13 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from config import settings  # loads .env via pydantic-settings
-from app.worker_tasks import upload_to_b2
+
+from dotenv import load_dotenv
+import boto3
+from botocore.exceptions import ClientError
+import traceback
+
+load_dotenv()
 
 # ---------- Paths & constants ----------
 ROOT = Path(__file__).resolve().parent
@@ -231,8 +237,75 @@ def main():
     if not FINAL_VIDEO.exists():
         raise SystemExit("final_video.mp4 not found.")
 
+    # Inline B2 upload using boto3 S3-compatible API
+    def upload_to_b2_inline(job_id: str, video_path: Path) -> Optional[str]:
+        bucket_name = os.getenv("B2_BUCKET_NAME")
+        key_id = os.getenv("B2_KEY_ID")
+        app_key = os.getenv("B2_APPLICATION_KEY")
+        if bucket_name is None or key_id is None or app_key is None:
+            log("B2 env vars not set; skipping upload.")
+            return None
+
+        local_file = video_path.absolute()
+        file_name = f"final/{job_id}.mp4"
+        log(f"[DEBUG] local_file absolute path: {local_file}")
+        log(f"[DEBUG] file_name in B2: {file_name}")
+        log(f"[DEBUG] file_size: {video_path.stat().st_size} bytes")
+
+        region = os.getenv("B2_REGION", "eu-central-003")
+        endpoint = f'https://s3.{region}.backblazeb2.com'
+        log(f"[DEBUG] Using endpoint: {endpoint}, region: {region}")
+
+        try:
+            s3 = boto3.client(
+                's3',
+                aws_access_key_id=key_id,
+                aws_secret_access_key=app_key,
+                endpoint_url=endpoint,
+                region_name=region
+            )
+            log("Using S3-compatible boto3 client for Backblaze B2.")
+            log("[DEBUG] S3 client created successfully.")
+
+            # Upload using S3 client (S3-compatible)
+            log(f"[DEBUG] Starting upload...")
+            s3.upload_file(
+                Filename=str(local_file),
+                Bucket=bucket_name,
+                Key=file_name,
+                ExtraArgs={'ContentType': 'video/mp4'}
+            )
+            log("[DEBUG] Upload call completed.")
+
+            # Get ETag from last response (or head for verification)
+            try:
+                head = s3.head_object(Bucket=bucket_name, Key=file_name)
+                etag = head.get('ETag', 'unknown')
+                content_type = head.get('ContentType', 'unknown')
+                size = head['ContentLength']
+                log(f"[DEBUG] Upload verified: ETag={etag}, size={size} bytes, content_type={content_type}")
+            except ClientError as head_e:
+                log(f"[DEBUG] Head verification failed: {head_e.response['Error']['Message']}")
+
+            log("Upload successful.")
+
+            # Construct public URL (assuming public bucket)
+            video_url = f"https://{bucket_name}.s3.{region}.backblazeb2.com/{file_name}"
+            log(f"Uploaded to B2: {video_url}")
+            return video_url
+
+        except Exception as e:
+            err_msg = str(e)
+            if isinstance(e, ClientError):
+                err_code = e.response['Error']['Code']
+                err_message = e.response['Error']['Message']
+                err_msg += f" | Server: {err_code} - {err_message}"
+            log(f"B2 upload failed: {type(e).__name__}: {err_msg}")
+            log(f"Full traceback:\n{traceback.format_exc()}")
+            return None
+
     log("Uploading to B2...")
-    b2_url = upload_to_b2(job_id, FINAL_VIDEO)
+    b2_url = upload_to_b2_inline(job_id, FINAL_VIDEO)
     if b2_url:
         log(f"Uploaded to B2: {b2_url}")
     else:
