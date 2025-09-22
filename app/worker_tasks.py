@@ -171,7 +171,7 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
 
 
 def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) -> Optional[str]:
-    """Upload video and scripts to Backblaze B2 (S3-compatible) and return public URL, or None on failure."""
+    """Upload video, scripts, and portrait images to Backblaze B2 (S3-compatible) and return public URL, or None on failure."""
     bucket_name = os.getenv("B2_BUCKET_NAME")
     key_id = os.getenv("B2_KEY_ID")
     app_key = os.getenv("B2_APPLICATION_KEY")
@@ -241,6 +241,38 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
                     ExtraArgs={'ContentType': 'application/json'}
                 )
                 log(f"Uploaded prompt.json to: {prompt_key}")
+
+            # Upload portrait image if it exists
+            portrait_path = job_dir / "pipeline" / "scenes" / "portrait_ref.png"
+            portrait_extensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp']
+            portrait_uploaded = False
+
+            for ext in portrait_extensions:
+                potential_portrait = job_dir / "pipeline" / "scenes" / f"portrait_ref{ext}"
+                if potential_portrait.exists():
+                    portrait_path = potential_portrait
+                    break
+
+            if portrait_path.exists():
+                # Determine content type based on file extension
+                _, ext = os.path.splitext(str(portrait_path))
+                content_type = 'image/png'  # default
+                if ext.lower() == '.jpg' or ext.lower() == '.jpeg':
+                    content_type = 'image/jpeg'
+                elif ext.lower() == '.webp':
+                    content_type = 'image/webp'
+                elif ext.lower() == '.bmp':
+                    content_type = 'image/bmp'
+
+                portrait_key = f"exports/{job_id}/portrait_ref{ext}"
+                s3.upload_file(
+                    str(portrait_path),
+                    bucket_name,
+                    portrait_key,
+                    ExtraArgs={'ContentType': content_type}
+                )
+                log(f"Uploaded portrait image to: {portrait_key}")
+                portrait_uploaded = True
 
         # Get ETag from last response (or head for verification)
         try:
