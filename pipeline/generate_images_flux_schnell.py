@@ -141,10 +141,11 @@ def build_scene1_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
         return (
             f"{desc}\n"
             f"{style_line}\n"
-            "Cast the person from the reference photo as the main character. "
-            "Match face structure, age, skin tone, and hair shape (not the background). "
+            "Cast the person from the reference photo as the main protagonist. "
+            "Match face structure, age, skin tone, and hair shape -ignore the background. "
+            "Adapt the person to match the existing visual style"
             "Keep a friendly, appealing look suitable for a kids' story. "
-            "Use the reference person as the protagonist."
+            
         )
     else:
         return f"{desc}\n{style_line}"
