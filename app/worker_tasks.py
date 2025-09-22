@@ -274,6 +274,33 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
                 log(f"Uploaded portrait image to: {portrait_key}")
                 portrait_uploaded = True
 
+            # Upload audio files if job_dir provided
+            if job_dir:
+                # Upload original input audio
+                audio_input_dir = job_dir / "pipeline" / "audio_input"
+                original_audio_path = audio_input_dir / "input.mp3"
+                if original_audio_path.exists():
+                    audio_key = f"exports/{job_id}/audio_input.mp3"
+                    s3.upload_file(
+                        str(original_audio_path),
+                        bucket_name,
+                        audio_key,
+                        ExtraArgs={'ContentType': 'audio/mpeg'}
+                    )
+                    log(f"Uploaded original input audio to: {audio_key}")
+
+                # Upload trimmed audio if it exists
+                trimmed_audio_path = audio_input_dir / "input_trimmed.mp3"
+                if trimmed_audio_path.exists():
+                    trimmed_audio_key = f"exports/{job_id}/audio_input_trimmed.mp3"
+                    s3.upload_file(
+                        str(trimmed_audio_path),
+                        bucket_name,
+                        trimmed_audio_key,
+                        ExtraArgs={'ContentType': 'audio/mpeg'}
+                    )
+                    log(f"Uploaded trimmed input audio to: {trimmed_audio_key}")
+
         # Get ETag from last response (or head for verification)
         try:
             head = s3.head_object(Bucket=bucket_name, Key=file_name)
