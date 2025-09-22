@@ -22,8 +22,8 @@ SCENES_DIR  = ROOT / "scenes"
 OUT_DIR     = ROOT / "video_chunks"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Seedance-1-Lite on Replicate (quick I2V)
-DEFAULT_MODEL = "bytedance/seedance-1-lite:190d90c9253af577650aa3693736a7c9c807f869fd2b44315938100cf5991436"
+# Seedance-1-Pro on Replicate (high-quality I2V)
+DEFAULT_MODEL = "bytedance/seedance-1-pro"
 DEFAULT_RESOLUTION = "480p"
 DEFAULT_FPS = 24
 
@@ -172,17 +172,12 @@ def try_seedance(model: str, image_path: Path, prompt: str, duration_s: int, res
     try:
         return _run(duration_s)
     except replicate.exceptions.ReplicateError as e:
-        msg = str(e).lower()
-        # Some Seedance deployments only accept 5 or 10 secs — choose the CEILING, not nearest.
-        if "duration" in msg and ("5" in msg or "10" in msg or "must be" in msg):
-            if duration_s <= 5:
-                fixed = 5
-            elif duration_s <= 10:
-                fixed = 10
-            else:
-                # If ever extended to 15 etc, you could math.ceil to nearest 5; for now cap at 10
-                fixed = 10
-            return _run(fixed)
+        # If API rejects the duration, try without the +1 second buffer
+        # This preserves the exact script timing instead of forcing to 5/10 seconds
+        if duration_s > 1:
+            fallback_duration = int(duration_s - 1)
+            print(f"⚠️  API rejected {duration_s}s duration, trying with exact script duration ({fallback_duration}s)")
+            return _run(fallback_duration)
         raise
 
 # ---------- Trim to target (no padding, no zoom) ----------
@@ -295,6 +290,7 @@ def main():
             "Animate gently with subtle parallax and small camera moves. "
             "Preserve the exact style and subject from the start frame. "
             "Do not add new characters or objects. "
+            "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
             f"Animate this moment: {scene_text}"
         )
 
