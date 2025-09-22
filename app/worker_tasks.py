@@ -242,6 +242,18 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
                 )
                 log(f"Uploaded prompt.json to: {prompt_key}")
 
+            # Upload video_prompts.json
+            video_prompts_path = job_dir / "pipeline" / "scenes" / "video_prompts.json"
+            if video_prompts_path.exists():
+                video_prompts_key = f"exports/{job_id}/video_prompts.json"
+                s3.upload_file(
+                    str(video_prompts_path),
+                    bucket_name,
+                    video_prompts_key,
+                    ExtraArgs={'ContentType': 'application/json'}
+                )
+                log(f"Uploaded video_prompts.json to: {video_prompts_key}")
+
             # Upload portrait image if it exists
             portrait_path = job_dir / "pipeline" / "scenes" / "portrait_ref.png"
             portrait_extensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp']
