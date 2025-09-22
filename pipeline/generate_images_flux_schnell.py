@@ -149,15 +149,17 @@ def build_scene1_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
     else:
         return f"{desc}\n{style_line}"
 
-def build_edit_prompt(desc: str, has_portrait: bool) -> str:
+def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
     if has_portrait:
         return (
             f"SCENE BRIEF: {desc}\n"
+            f"{style_line}\n"
             "Maintain the protagonist's identity from the reference image(s) (match face & hair)."
         )
     else:
         return (
             f"SCENE BRIEF: {desc}\n"
+            f"{style_line}\n"
             "Maintain visual continuity with the reference image(s)."
         )
 
@@ -260,12 +262,12 @@ def main():
                     if ref_png is None or not ref_png.exists():
                         raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
                     refs = [ref_png, portrait_path]
-                    prompt = build_edit_prompt(desc=desc, has_portrait=True)
+                    prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=True)
                 else:
                     if ref_png is None or not ref_png.exists() or prev_png is None or not prev_png.exists():
                         raise RuntimeError(f"Missing references for scene {sid}.")
                     refs = [ref_png, prev_png, portrait_path]
-                    prompt = build_edit_prompt(desc=desc, has_portrait=True)
+                    prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=True)
 
                 out = run_nano_banana_edit(prompt, refs)
                 mode = "edit"
@@ -302,7 +304,7 @@ def main():
                             raise RuntimeError(f"Missing references for scene {sid}.")
                         refs = [ref_png, prev_png]
 
-                    prompt = build_edit_prompt(desc=desc, has_portrait=False)
+                    prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=False)
                     out = run_nano_banana_edit(prompt, refs)
                     mode = "edit"
                     prompt_log[sid] = {
