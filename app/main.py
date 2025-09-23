@@ -2,6 +2,8 @@
 import os
 import time
 import uuid
+import subprocess
+import shutil
 from pathlib import Path
 import json
 from fastapi import Header, Query, HTTPException
@@ -160,6 +162,70 @@ async def status(job_id: str):
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+
+@app.get("/health")
+async def detailed_health():
+    """Comprehensive health check for all dependencies"""
+    import shutil
+
+    health_status = {
+        "status": "healthy",
+        "checks": {},
+        "timestamp": time.time()
+    }
+
+    # Check Redis connection
+    try:
+        redis.ping()
+        health_status["checks"]["redis"] = {"status": "ok", "message": "Connected successfully"}
+    except Exception as e:
+        health_status["checks"]["redis"] = {"status": "error", "message": str(e)}
+        health_status["status"] = "degraded"
+
+    # Check required environment variables
+    required_env_vars = ["OPENAI_API_KEY", "REPLICATE_API_TOKEN"]
+    for var in required_env_vars:
+        if os.getenv(var):
+            health_status["checks"][var] = {"status": "ok", "message": "Set"}
+        else:
+            health_status["checks"][var] = {"status": "error", "message": "Missing"}
+            health_status["status"] = "unhealthy"
+
+    # Check B2 credentials
+    b2_vars = ["B2_BUCKET_NAME", "B2_KEY_ID", "B2_APPLICATION_KEY"]
+    b2_configured = all(os.getenv(var) for var in b2_vars)
+    if b2_configured:
+        health_status["checks"]["b2_storage"] = {"status": "ok", "message": "Configured"}
+    else:
+        health_status["checks"]["b2_storage"] = {"status": "warning", "message": "Not configured (optional)"}
+
+    # Check disk space
+    try:
+        disk_usage = shutil.disk_usage(UPLOADS_DIR)
+        free_gb = disk_usage.free / (1024**3)
+        if free_gb < 1:  # Less than 1GB free
+            health_status["checks"]["disk_space"] = {"status": "warning", "message": f"Low space: {free_gb:.1f}GB free"}
+            health_status["status"] = "degraded"
+        else:
+            health_status["checks"]["disk_space"] = {"status": "ok", "message": f"{free_gb:.1f}GB free"}
+    except Exception as e:
+        health_status["checks"]["disk_space"] = {"status": "error", "message": str(e)}
+        health_status["status"] = "degraded"
+
+    # Check ffmpeg availability
+    try:
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
+        if result.returncode == 0:
+            health_status["checks"]["ffmpeg"] = {"status": "ok", "message": "Available"}
+        else:
+            health_status["checks"]["ffmpeg"] = {"status": "error", "message": "Not available"}
+            health_status["status"] = "unhealthy"
+    except FileNotFoundError:
+        health_status["checks"]["ffmpeg"] = {"status": "error", "message": "Not found"}
+        health_status["status"] = "unhealthy"
+
+    return health_status
 
 
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()

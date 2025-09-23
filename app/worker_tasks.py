@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 from collections import deque
+import logging
 
 from dotenv import load_dotenv
 from .email_utils import send_link_email
@@ -17,6 +18,7 @@ from botocore.exceptions import ClientError
 
 import json
 import tempfile
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 load_dotenv()
 
@@ -42,20 +44,35 @@ def _copy_pipeline_to(job_dir: Path) -> None:
     shutil.copytree(PIPELINE_SRC, target)
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=5),
+    retry=retry_if_exception_type((subprocess.CalledProcessError, FileNotFoundError, Exception)),
+    reraise=True
+)
 def ensure_mp3(src_path: Path) -> Path:
-    mt, _ = mimetypes.guess_type(str(src_path))
-    is_mp3 = (src_path.suffix.lower() == ".mp3") or (mt == "audio/mpeg")
-    if is_mp3:
-        return src_path
-    out_path = src_path.with_suffix(".mp3")
-    cmd = ["ffmpeg", "-y", "-i", str(src_path), "-vn", "-acodec", "libmp3lame", "-b:a", "192k", "-ar", "44100", "-ac", "2", str(out_path)]
-    log(f"[LOG] ensure_mp3 input: {src_path} (ext: {src_path.suffix}, size: {src_path.stat().st_size}), cmd: {' '.join(cmd)}")
-    subprocess.run(cmd, check=True)
-    out_size = out_path.stat().st_size if out_path.exists() else 0
-    log(f"[LOG] ensure_mp3 output: {out_path} (size: {out_size})")
-    if out_size == 0:
-        raise RuntimeError("Conversion produced empty file")
-    return out_path
+    try:
+        mt, _ = mimetypes.guess_type(str(src_path))
+        is_mp3 = (src_path.suffix.lower() == ".mp3") or (mt == "audio/mpeg")
+        if is_mp3:
+            return src_path
+        out_path = src_path.with_suffix(".mp3")
+        cmd = ["ffmpeg", "-y", "-i", str(src_path), "-vn", "-acodec", "libmp3lame", "-b:a", "192k", "-ar", "44100", "-ac", "2", str(out_path)]
+        log(f"[LOG] ensure_mp3 input: {src_path} (ext: {src_path.suffix}, size: {src_path.stat().st_size}), cmd: {' '.join(cmd)}")
+
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        if result.returncode != 0:
+            log(f"[ERROR] ffmpeg failed with return code {result.returncode}: {result.stderr}")
+            raise subprocess.CalledProcessError(result.returncode, cmd, result.stderr)
+
+        out_size = out_path.stat().st_size if out_path.exists() else 0
+        log(f"[LOG] ensure_mp3 output: {out_path} (size: {out_size})")
+        if out_size == 0:
+            raise RuntimeError("Conversion produced empty file")
+        return out_path
+    except Exception as e:
+        log(f"[ERROR] ensure_mp3 failed for {src_path}: {e}")
+        raise
 
 
 def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
@@ -170,6 +187,12 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
 
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type((ClientError, Exception)),
+    reraise=True
+)
 def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) -> Optional[str]:
     """Upload video, scripts, and portrait images to Backblaze B2 (S3-compatible) and return public URL, or None on failure."""
     bucket_name = os.getenv("B2_BUCKET_NAME")
@@ -343,33 +366,74 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
 
 
 def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[str, str]:
-    if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
-        MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-        placeholder = APP_ROOT / "app" / "static" / "sample.mp4"
-        if not placeholder.exists():
-            placeholder.parent.mkdir(parents=True, exist_ok=True)
-            with open(placeholder, "wb") as f:
-                f.write(b"\x00")
-        out = MEDIA_DIR / f"{job_id}.mp4"
-        shutil.copy2(placeholder, out)
-        video_url = f"{BASE_URL}/media/{job_id}.mp4"
-        send_link_email(email, video_url, job_id)
+    """Process a video job with comprehensive error handling and retry logic"""
+    try:
+        log(f"Starting job processing: {job_id} (email: {email}, style: {style})")
+
+        if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
+            log("Using fake pipeline mode")
+            MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+            placeholder = APP_ROOT / "app" / "static" / "sample.mp4"
+            if not placeholder.exists():
+                placeholder.parent.mkdir(parents=True, exist_ok=True)
+                with open(placeholder, "wb") as f:
+                    f.write(b"\x00")
+            out = MEDIA_DIR / f"{job_id}.mp4"
+            shutil.copy2(placeholder, out)
+            video_url = f"{BASE_URL}/media/{job_id}.mp4"
+            send_link_email(email, video_url, job_id)
+            return {"status": "done", "video_url": video_url}
+
+        # Create job directory
+        job_dir = UPLOADS_DIR / job_id
+        try:
+            job_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            log(f"[ERROR] Failed to create job directory {job_dir}: {e}")
+            raise RuntimeError(f"Failed to create job directory: {e}")
+
+        hint_audio = Path(upload_path) if upload_path else None
+        log(f"Job dir initial listing: {sorted([p.name for p in job_dir.iterdir()]) if job_dir.exists() else []}")
+
+        # Run the main video processing pipeline
+        try:
+            final_video = _run_make_video(job_dir, hint_audio, style)
+        except Exception as e:
+            log(f"[ERROR] Video processing failed for job {job_id}: {e}")
+            raise RuntimeError(f"Video processing failed: {e}")
+
+        # Copy to public media directory
+        try:
+            MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+            public_path = MEDIA_DIR / f"{job_id}.mp4"
+            shutil.copy2(final_video, public_path)
+            log(f"Video copied to public path: {public_path}")
+        except Exception as e:
+            log(f"[ERROR] Failed to copy video to public directory: {e}")
+            raise RuntimeError(f"Failed to copy video to public directory: {e}")
+
+        # Upload to Backblaze B2 (with fallback to local)
+        try:
+            b2_url = upload_to_b2(job_id, public_path, job_dir)
+            video_url = b2_url or f"{BASE_URL}/media/{job_id}.mp4"
+            log(f"Using video URL: {video_url}")
+        except Exception as e:
+            log(f"[WARNING] B2 upload failed, falling back to local URL: {e}")
+            video_url = f"{BASE_URL}/media/{job_id}.mp4"
+
+        # Send email notification
+        try:
+            send_link_email(email, video_url, job_id)
+            log(f"Email notification sent to {email}")
+        except Exception as e:
+            log(f"[WARNING] Failed to send email notification: {e}")
+            # Don't fail the job if email fails
+
+        log(f"Job {job_id} completed successfully")
         return {"status": "done", "video_url": video_url}
 
-    job_dir = UPLOADS_DIR / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
-
-    hint_audio = Path(upload_path) if upload_path else None
-    log(f"job dir initial listing {job_dir}: {sorted([p.name for p in job_dir.iterdir()]) if job_dir.exists() else []}")
-
-    final_video = _run_make_video(job_dir, hint_audio, style)
-
-    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-    public_path = MEDIA_DIR / f"{job_id}.mp4"
-    shutil.copy2(final_video, public_path)
-
-    # Upload to Backblaze B2 (fallback to local if fails)
-    b2_url = upload_to_b2(job_id, public_path, job_dir)
-    video_url = b2_url or f"{BASE_URL}/media/{job_id}.mp4"
-    send_link_email(email, video_url, job_id)
-    return {"status": "done", "video_url": video_url}
+    except Exception as e:
+        log(f"[ERROR] Job {job_id} failed completely: {e}")
+        import traceback
+        log(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
+        raise
