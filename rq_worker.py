@@ -15,7 +15,14 @@ load_dotenv()
 # Add app directory to path so we can import worker_tasks
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.worker_tasks import log
+try:
+    from app.worker_tasks import log
+    print(f"[DEBUG] Successfully imported worker_tasks", flush=True)
+except Exception as e:
+    print(f"[ERROR] Failed to import worker_tasks: {e}", flush=True)
+    # Define a simple log function if import fails
+    def log(msg):
+        print(f"[worker] {msg}", flush=True)
 
 # Redis configuration (same as main.py)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -31,34 +38,46 @@ class LoggingWorker(Worker):
     """Custom RQ Worker with enhanced logging capabilities"""
 
     def __init__(self, queues, connection=None, **kwargs):
-        # Boot logging BEFORE calling super().__init__
-        print(f"[BOOT] Starting RQ worker for queue={QUEUE_KEY}", flush=True)
-
-        super().__init__(queues, connection=connection, **kwargs)
-
-        # Get Redis connection info
-        redis_conn = self.connection or Redis.from_url(REDIS_URL)
         try:
-            connection = redis_conn.connection_pool.get_connection('_')
-            redis_host = getattr(connection, 'host', 'localhost')
-            redis_port = getattr(connection, 'port', 6379)
-            redis_db = getattr(redis_conn, 'db', 0)
-        except:
-            redis_host = 'localhost'
-            redis_port = 6379
-            redis_db = 0
+            # Boot logging BEFORE calling super().__init__
+            print(f"[BOOT] Starting RQ worker for queue={QUEUE_KEY}", flush=True)
 
-        print(f"[BOOT] service=worker queue={QUEUE_KEY} redis={redis_host}:{redis_port}/{redis_db}", flush=True)
-        print(f"[BOOT] worker_name={self.name} heartbeat={HEARTBEAT_INTERVAL}s idle_timeout={IDLE_TIMEOUT}s", flush=True)
+            print(f"[DEBUG] Calling super().__init__ with queues={len(queues)} queues", flush=True)
+            super().__init__(queues, connection=connection, **kwargs)
+            print(f"[DEBUG] super().__init__ completed successfully", flush=True)
 
-        # Idle detection
-        self.last_job_time = time.time()
-        self.idle_timer = None
-        self.start_idle_timer()
+            # Get Redis connection info
+            redis_conn = self.connection or Redis.from_url(REDIS_URL)
+            try:
+                connection = redis_conn.connection_pool.get_connection('_')
+                redis_host = getattr(connection, 'host', 'localhost')
+                redis_port = getattr(connection, 'port', 6379)
+                redis_db = getattr(redis_conn, 'db', 0)
+            except Exception as e:
+                print(f"[DEBUG] Error getting Redis connection info: {e}", flush=True)
+                redis_host = 'localhost'
+                redis_port = 6379
+                redis_db = 0
 
-        # Heartbeat thread
-        self.heartbeat_thread = None
-        self.start_heartbeat()
+            print(f"[BOOT] service=worker queue={QUEUE_KEY} redis={redis_host}:{redis_port}/{redis_db}", flush=True)
+            print(f"[BOOT] worker_name={self.name} heartbeat={HEARTBEAT_INTERVAL}s idle_timeout={IDLE_TIMEOUT}s", flush=True)
+
+            # Idle detection
+            self.last_job_time = time.time()
+            self.idle_timer = None
+            self.start_idle_timer()
+
+            # Heartbeat thread
+            self.heartbeat_thread = None
+            self.start_heartbeat()
+
+            print(f"[DEBUG] Worker initialization completed successfully", flush=True)
+
+        except Exception as e:
+            print(f"[ERROR] Worker initialization failed: {e}", flush=True)
+            import traceback
+            print(f"[ERROR] Traceback: {traceback.format_exc()}", flush=True)
+            # Don't re-raise the exception, let the idle timer still work for debugging
 
     def start_idle_timer(self):
         """Start the idle timer that logs when no jobs are processed"""
@@ -119,6 +138,7 @@ class LoggingWorker(Worker):
 def main():
     """Main function to start the custom worker"""
     try:
+        print(f"[DEBUG] Starting main function", flush=True)
         print(f"[DEBUG] Connecting to Redis at {REDIS_URL}", flush=True)
 
         # Connect to Redis
@@ -131,12 +151,14 @@ def main():
         print(f"[DEBUG] Queue created: {QUEUE_NAME}", flush=True)
 
         # Create and start custom worker
+        print(f"[DEBUG] Creating LoggingWorker...", flush=True)
         worker = LoggingWorker([queue], connection=redis_conn)
         print(f"[DEBUG] Worker created: {worker.name}", flush=True)
 
         # Start working
         print(f"[DEBUG] Starting worker.work()", flush=True)
         worker.work()
+        print(f"[DEBUG] worker.work() completed", flush=True)
 
     except Exception as e:
         print(f"[ERROR] Failed to start worker: {e}", flush=True)
