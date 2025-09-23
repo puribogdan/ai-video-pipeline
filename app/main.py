@@ -24,6 +24,11 @@ TEMPLATES = Jinja2Templates(directory=str(APP_ROOT / "app" / "templates"))
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
+# Redis key configuration
+QUEUE_NAME = os.environ.get("QUEUE_NAME", "video-jobs")
+KEY_PREFIX = os.environ.get("KEY_PREFIX", "")
+QUEUE_KEY = f"{KEY_PREFIX}{QUEUE_NAME}"
+
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR = APP_ROOT / "app" / "static"
@@ -34,7 +39,7 @@ app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 redis = Redis.from_url(REDIS_URL)
-queue = Queue("video-jobs", connection=redis, default_timeout=1800)
+queue = Queue(QUEUE_NAME, connection=redis, default_timeout=1800)
 
 JOB_STATUS = {}
 
