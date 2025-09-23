@@ -2,7 +2,7 @@
 set -euo pipefail
 python -m app.prepare_ffmpeg
 export PATH="/tmp/bin:$PATH"
-python worker.py &
+python rq_worker.py &
 exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
 
 
