@@ -85,6 +85,25 @@ def load_image_prompts() -> Dict[str, str]:
             prompts[scene_id] = scene_data["prompt"]
     return prompts
 
+def clean_video_prompt(image_prompt: str) -> str:
+    """Remove protagonist identity instructions from image prompt for video generation."""
+    # Remove the protagonist identity line that comes from image generation
+    lines = image_prompt.split('\n')
+    cleaned_lines = []
+
+    for line in lines:
+        # Skip the protagonist identity instruction
+        if "Maintain the protagonist's identity from the reference image" in line:
+            continue
+        if "match face & hair" in line:
+            continue
+        # Skip empty lines that might be left after removing the protagonist line
+        if line.strip() == "":
+            continue
+        cleaned_lines.append(line)
+
+    return '\n'.join(cleaned_lines).strip()
+
 def sec_len(s: Dict[str, Any]) -> float:
     return max(0.1, float(s["end_time"]) - float(s["start_time"]))
 
@@ -315,14 +334,18 @@ def main():
         scene_text = s.get("scene_description") or s.get("narration") or ""
 
         # Get the specific image prompt for this scene
-        image_prompt = image_prompts.get(scene_id, "")
-        if image_prompt:
-            # Use the specific image prompt as the base, then add animation instructions
+        raw_image_prompt = image_prompts.get(scene_id, "")
+        image_prompt = ""  # Initialize for logging
+
+        if raw_image_prompt:
+            # Clean the image prompt by removing protagonist identity instructions
+            image_prompt = clean_video_prompt(raw_image_prompt)
+            # Use the cleaned image prompt as the base, then add animation instructions
             prompt = (
                 f"{image_prompt}\n"
                 "Animate gently with subtle parallax and small camera moves. "
                 "Preserve the exact style and subject from the start frame. "
-                
+
                 "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
             )
         else:
@@ -330,7 +353,7 @@ def main():
             prompt = (
                 "Animate gently with subtle parallax and small camera moves. "
                 "Preserve the exact style and subject from the start frame. "
-                
+
                 "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
                 f"Animate this moment: {scene_text}"
             )
@@ -338,7 +361,8 @@ def main():
         # Log the video prompt for this scene
         video_prompts_log[scene_id] = {
             "scene_description": scene_text,
-            "image_prompt": image_prompt,
+            "raw_image_prompt": raw_image_prompt,
+            "cleaned_image_prompt": image_prompt,
             "video_prompt": prompt,
             "duration_seconds": target,
             "model": args.model,
