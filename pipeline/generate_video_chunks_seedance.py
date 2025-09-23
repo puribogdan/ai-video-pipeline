@@ -322,7 +322,7 @@ def main():
                 f"{image_prompt}\n"
                 "Animate gently with subtle parallax and small camera moves. "
                 "Preserve the exact style and subject from the start frame. "
-                "Do not add new characters or objects. "
+                
                 "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
             )
         else:
@@ -330,7 +330,7 @@ def main():
             prompt = (
                 "Animate gently with subtle parallax and small camera moves. "
                 "Preserve the exact style and subject from the start frame. "
-                "Do not add new characters or objects. "
+                
                 "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
                 f"Animate this moment: {scene_text}"
             )

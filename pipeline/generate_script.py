@@ -62,7 +62,7 @@ SYSTEM_PROMPT = (
     "Notes for scene_description:\n"
     "- Use the entire story context, not only the words in this scene, to understand characters, setting, and continuity. Each scene must feel consistent with the others.\n"
     "- Describe what is visually happening in this specific scene (characters, environment, actions, emotions, atmosphere) while ensuring it aligns with the story so far and what follows.\n"
-    "- Output the scene_description as a short, vivid text-to-image prompt suitable for AI image generation.\n"
+    "- Output the scene_description as a  vivid text-to-image prompt suitable for AI image generation.\n"
     "- No new objects, characters, or events beyond what is implied in the story.\n"
     "- Present tense, kid-friendly, concrete. Focus on what the image should show.\n"
 )
