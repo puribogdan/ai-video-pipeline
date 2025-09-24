@@ -149,15 +149,17 @@ async def status(job_id: str):
 
         if job.is_finished:
             # Job completed successfully - save to file for persistence
-            _save_job_completion(job_id, "finished", job.result)
-            return {"state": "finished", "result": job.result}
+            _save_job_completion(job_id, "done", job.result)
+            return {"state": "done", "result": job.result}
         elif job.is_failed:
             # Job failed - save to file for persistence
             _save_job_completion(job_id, "failed", {"error": str(job.exc_info)[:2000]})
             return {"state": "failed", "exc": str(job.exc_info)[:2000]}
         else:
-            # Job still in progress
-            return {"state": job.get_status(refresh=True), "meta": meta}
+            # Job still in progress - map RQ states to desired states
+            rq_state = job.get_status(refresh=True)
+            mapped_state = _map_rq_state_to_custom(rq_state)
+            return {"state": mapped_state, "meta": meta}
 
     except Exception as e:
         # Job not found in Redis - check if it's a completed job saved to file
@@ -166,12 +168,26 @@ async def status(job_id: str):
             try:
                 with open(completion_file, 'r') as f:
                     completion_data = json.load(f)
+                # Map old state names to new ones for backward compatibility
+                if completion_data.get("state") == "finished":
+                    completion_data["state"] = "done"
                 return completion_data
             except Exception as file_error:
                 return {"state": "unknown", "error": f"Job not found in Redis and failed to read completion file: {str(file_error)}"}
 
         # Job truly doesn't exist
         return {"state": "unknown", "error": f"Job not found: {str(e)}"}
+
+
+def _map_rq_state_to_custom(rq_state: str) -> str:
+    """Map RQ job states to custom frontend states"""
+    state_mapping = {
+        "queued": "queue",
+        "started": "active",
+        "deferred": "queue",  # Treat deferred jobs as queued
+        "processing": "processing",  # Custom state from worker
+    }
+    return state_mapping.get(rq_state, rq_state)  # Return original state if no mapping found
 
 
 def _save_job_completion(job_id: str, state: str, result: dict) -> None:

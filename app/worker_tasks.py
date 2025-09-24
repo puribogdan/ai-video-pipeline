@@ -386,10 +386,10 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
     try:
         log(f"Starting job processing: {job_id} (email: {email}, style: {style})")
 
-        # Update status: processing started
+        # Update status: active (job started)
         try:
             from app.main import _save_job_completion
-            _save_job_completion(job_id, "processing", {"message": "Starting video processing pipeline"})
+            _save_job_completion(job_id, "active", {"message": "Job started - initializing video processing pipeline"})
         except Exception as e:
             log(f"[WARNING] Failed to save initial status: {e}")
 
@@ -420,19 +420,19 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
 
         # Run the main video processing pipeline
         try:
-            # Update status: video processing started
+            # Update status: processing
             try:
                 from app.main import _save_job_completion
-                _save_job_completion(job_id, "processing", {"message": "Running video processing pipeline"})
+                _save_job_completion(job_id, "processing", {"message": "Processing audio, generating script, and creating video frames"})
             except Exception as e:
                 log(f"[WARNING] Failed to save processing status: {e}")
 
             final_video = _run_make_video(job_dir, hint_audio, style)
 
-            # Update status: video processing completed
+            # Update status: processing
             try:
                 from app.main import _save_job_completion
-                _save_job_completion(job_id, "processing", {"message": "Video processing completed, preparing final output"})
+                _save_job_completion(job_id, "processing", {"message": "Finalizing video - adding audio and preparing for upload"})
             except Exception as e:
                 log(f"[WARNING] Failed to save completion status: {e}")
 
@@ -474,7 +474,7 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
         # Save completion status for persistent tracking
         try:
             from app.main import _save_job_completion
-            _save_job_completion(job_id, "finished", {"status": "done", "video_url": video_url})
+            _save_job_completion(job_id, "done", {"status": "done", "video_url": video_url})
         except Exception as e:
             log(f"[WARNING] Failed to save completion status: {e}")
 

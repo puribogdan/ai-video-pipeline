@@ -179,18 +179,14 @@
         const update = (msg) => {
           statusEl.textContent = msg;
         };
-        update('Processing…');
+        update('Queue…');
 
         const intervalMs = 45000;
         const poll = setInterval(async () => {
           try {
             const r = await fetch(`/status/${jobId}`, { cache: 'no-store' });
             const data = await r.json();
-            if (
-              data.state === 'finished' &&
-              data.result &&
-              data.result.video_url
-            ) {
+            if (data.state === 'done' && data.result && data.result.video_url) {
               clearInterval(poll);
               update('Done!');
               resultEl.innerHTML = `<a href="${data.result.video_url}" target="_blank" rel="noopener">Download your video</a>`;
@@ -209,8 +205,22 @@
               data.result.message
             ) {
               update(data.result.message + '…');
+            } else if (
+              data.state === 'active' &&
+              data.result &&
+              data.result.message
+            ) {
+              update(data.result.message + '…');
             } else {
-              update('Status: ' + (data.state || 'processing') + '…');
+              // Handle different states with appropriate messages
+              const statusMessages = {
+                queue: 'Queue - waiting for processing…',
+                active: 'Active - starting processing…',
+                processing: 'Processing - generating your video…',
+                failed: 'Failed - please try again…',
+                done: 'Done - video ready!',
+              };
+              update(statusMessages[data.state] || `Status: ${data.state}…`);
             }
           } catch (e) {}
         }, intervalMs);
