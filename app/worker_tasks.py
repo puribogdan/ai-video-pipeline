@@ -386,6 +386,13 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
     try:
         log(f"Starting job processing: {job_id} (email: {email}, style: {style})")
 
+        # Update status: processing started
+        try:
+            from app.main import _save_job_completion
+            _save_job_completion(job_id, "processing", {"message": "Starting video processing pipeline"})
+        except Exception as e:
+            log(f"[WARNING] Failed to save initial status: {e}")
+
         if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
             log("Using fake pipeline mode")
             MEDIA_DIR.mkdir(parents=True, exist_ok=True)
@@ -413,7 +420,22 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
 
         # Run the main video processing pipeline
         try:
+            # Update status: video processing started
+            try:
+                from app.main import _save_job_completion
+                _save_job_completion(job_id, "processing", {"message": "Running video processing pipeline"})
+            except Exception as e:
+                log(f"[WARNING] Failed to save processing status: {e}")
+
             final_video = _run_make_video(job_dir, hint_audio, style)
+
+            # Update status: video processing completed
+            try:
+                from app.main import _save_job_completion
+                _save_job_completion(job_id, "processing", {"message": "Video processing completed, preparing final output"})
+            except Exception as e:
+                log(f"[WARNING] Failed to save completion status: {e}")
+
         except Exception as e:
             log(f"[ERROR] Video processing failed for job {job_id}: {e}")
             import traceback
@@ -448,10 +470,26 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             # Don't fail the job if email fails
 
         log(f"Job {job_id} completed successfully")
+
+        # Save completion status for persistent tracking
+        try:
+            from app.main import _save_job_completion
+            _save_job_completion(job_id, "finished", {"status": "done", "video_url": video_url})
+        except Exception as e:
+            log(f"[WARNING] Failed to save completion status: {e}")
+
         return {"status": "done", "video_url": video_url}
 
     except Exception as e:
         log(f"[ERROR] Job {job_id} failed completely: {e}")
         import traceback
         log(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
+
+        # Save failure status for persistent tracking
+        try:
+            from app.main import _save_job_completion
+            _save_job_completion(job_id, "failed", {"error": str(e)})
+        except Exception as save_error:
+            log(f"[WARNING] Failed to save failure status: {save_error}")
+
         raise

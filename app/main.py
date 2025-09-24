@@ -139,24 +139,63 @@ async def submit(
 
 @app.get("/status/{job_id}")
 async def status(job_id: str):
-    """Get job status directly from Redis instead of in-memory dictionary"""
+    """Get job status from Redis or file-based tracking for completed jobs"""
     from rq.job import Job
-    
+
+    # First, try to fetch from Redis (active jobs)
     try:
-        # Try to fetch job directly from Redis using job_id as RQ job ID
         job = Job.fetch(job_id, connection=redis)
         meta = job.meta or {}
-        
+
         if job.is_finished:
+            # Job completed successfully - save to file for persistence
+            _save_job_completion(job_id, "finished", job.result)
             return {"state": "finished", "result": job.result}
         elif job.is_failed:
+            # Job failed - save to file for persistence
+            _save_job_completion(job_id, "failed", {"error": str(job.exc_info)[:2000]})
             return {"state": "failed", "exc": str(job.exc_info)[:2000]}
         else:
+            # Job still in progress
             return {"state": job.get_status(refresh=True), "meta": meta}
-            
+
     except Exception as e:
-        # If direct fetch fails, return unknown status
+        # Job not found in Redis - check if it's a completed job saved to file
+        completion_file = UPLOADS_DIR / job_id / "completion_status.json"
+        if completion_file.exists():
+            try:
+                with open(completion_file, 'r') as f:
+                    completion_data = json.load(f)
+                return completion_data
+            except Exception as file_error:
+                return {"state": "unknown", "error": f"Job not found in Redis and failed to read completion file: {str(file_error)}"}
+
+        # Job truly doesn't exist
         return {"state": "unknown", "error": f"Job not found: {str(e)}"}
+
+
+def _save_job_completion(job_id: str, state: str, result: dict) -> None:
+    """Save job completion status to a file for persistence beyond Redis cleanup"""
+    try:
+        job_dir = UPLOADS_DIR / job_id
+        completion_file = job_dir / "completion_status.json"
+
+        completion_data = {
+            "state": state,
+            "result": result,
+            "completed_at": time.time()
+        }
+
+        # Ensure directory exists
+        completion_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write completion status
+        with open(completion_file, 'w') as f:
+            json.dump(completion_data, f, indent=2)
+
+    except Exception as e:
+        # Log error but don't fail the job
+        print(f"[WARNING] Failed to save completion status for job {job_id}: {e}", flush=True)
 
 
 @app.get("/healthz")

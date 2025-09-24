@@ -203,6 +203,12 @@
                 pre.style.whiteSpace = 'pre-wrap';
                 resultEl.appendChild(pre);
               }
+            } else if (
+              data.state === 'processing' &&
+              data.result &&
+              data.result.message
+            ) {
+              update(data.result.message + '…');
             } else {
               update('Status: ' + (data.state || 'processing') + '…');
             }
