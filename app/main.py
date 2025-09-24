@@ -43,8 +43,6 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 redis = Redis.from_url(REDIS_URL)
 queue = Queue(QUEUE_NAME, connection=redis, default_timeout=1800)
 
-JOB_STATUS = {}
-
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -135,28 +133,30 @@ async def submit(
         retry=Retry(max=3, interval=[15, 30, 60]),
         job_timeout=1800,
     )
-    JOB_STATUS[job_id] = {"state": "queued", "rq_id": rq_job.get_id()}
 
     return TEMPLATES.TemplateResponse("upload.html", {"request": request, "job_id": job_id})
 
 
 @app.get("/status/{job_id}")
 async def status(job_id: str):
-    info = JOB_STATUS.get(job_id)
-    if not info:
-        return JSONResponse({"error": "unknown job id"}, status_code=404)
-
+    """Get job status directly from Redis instead of in-memory dictionary"""
     from rq.job import Job
+    
     try:
-        job = Job.fetch(info["rq_id"], connection=redis)
+        # Try to fetch job directly from Redis using job_id as RQ job ID
+        job = Job.fetch(job_id, connection=redis)
         meta = job.meta or {}
+        
         if job.is_finished:
             return {"state": "finished", "result": job.result}
-        if job.is_failed:
+        elif job.is_failed:
             return {"state": "failed", "exc": str(job.exc_info)[:2000]}
-        return {"state": job.get_status(refresh=True), "meta": meta}
+        else:
+            return {"state": job.get_status(refresh=True), "meta": meta}
+            
     except Exception as e:
-        return {"state": info.get("state", "unknown"), "error": str(e)}
+        # If direct fetch fails, return unknown status
+        return {"state": "unknown", "error": f"Job not found: {str(e)}"}
 
 
 @app.get("/healthz")
