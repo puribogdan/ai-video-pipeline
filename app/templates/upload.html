@@ -175,22 +175,9 @@
       </form>
     </div>
 
-    {% if job_id %}
-    <div class="card" id="job">
-      <p>Job queued: <code>{{ job_id }}</code></p>
-      <p class="muted">
-        This page will update automatically. You can also track status at
-        <a href="/status/{{ job_id }}" target="_blank" rel="noopener"
-          >/status/{{ job_id }}</a
-        >.
-      </p>
-      <p id="status">Starting…</p>
-      <p id="result"></p>
-    </div>
-
     <script>
+      // Audio validation functionality - runs on all pages
       (function () {
-        // Audio validation functionality
         const audioInput = document.getElementById('audio');
         const submitBtn = document.getElementById('submit-btn');
         const audioStatus = document.getElementById('audio-status');
@@ -242,7 +229,24 @@
 
         // Initialize button state
         submitBtn.disabled = true;
+      })();
+    </script>
 
+    {% if job_id %}
+    <div class="card" id="job">
+      <p>Job queued: <code>{{ job_id }}</code></p>
+      <p class="muted">
+        This page will update automatically. You can also track status at
+        <a href="/status/{{ job_id }}" target="_blank" rel="noopener"
+          >/status/{{ job_id }}</a
+        >.
+      </p>
+      <p id="status">Starting…</p>
+      <p id="result"></p>
+    </div>
+
+    <script>
+      (function () {
         const jobId = "{{ job_id | default('') }}";
         if (!jobId) return;
         const statusEl = document.getElementById('status');
