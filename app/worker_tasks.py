@@ -35,13 +35,88 @@ def log(msg: str) -> None:
     print(f"[worker] {msg}", flush=True)
 
 
+def cleanup_job_resources(job_dir: Path) -> None:
+    """Force cleanup of all job resources with retry logic"""
+    try:
+        # Force garbage collection to release file handles
+        import gc
+        gc.collect()
+
+        # Remove pipeline directory with retry
+        pipeline_dir = job_dir / "pipeline"
+        if pipeline_dir.exists():
+            for attempt in range(5):
+                try:
+                    shutil.rmtree(pipeline_dir)
+                    log(f"[CLEANUP] Successfully removed pipeline directory (attempt {attempt + 1})")
+                    break
+                except OSError as e:
+                    log(f"[CLEANUP] Attempt {attempt + 1} failed: {e}")
+                    if attempt < 4:
+                        time.sleep(1)
+                    else:
+                        # Force cleanup with system command
+                        try:
+                            import subprocess
+                            subprocess.run(['rm', '-rf', str(pipeline_dir)], check=True, timeout=10)
+                            log("[CLEANUP] Force cleanup successful")
+                        except Exception as force_e:
+                            log(f"[WARNING] Force cleanup failed: {force_e}")
+
+        # Clean up any remaining temp files
+        cleanup_patterns = ["*.tmp", "*.temp", "*.lock", "*.pid"]
+        for pattern in cleanup_patterns:
+            for f in job_dir.glob(pattern):
+                try:
+                    f.unlink()
+                    log(f"[CLEANUP] Removed temp file: {f.name}")
+                except Exception as e:
+                    log(f"[WARNING] Failed to remove temp file {f.name}: {e}")
+
+    except Exception as e:
+        log(f"[WARNING] Cleanup failed for {job_dir}: {e}")
+
+
 def _copy_pipeline_to(job_dir: Path) -> None:
     if not PIPELINE_SRC.exists():
         raise RuntimeError(f"Pipeline folder not found: {PIPELINE_SRC}")
     target = job_dir / "pipeline"
+
+    # More robust cleanup with retry
     if target.exists():
-        shutil.rmtree(target)
-    shutil.copytree(PIPELINE_SRC, target)
+        for attempt in range(5):
+            try:
+                shutil.rmtree(target)
+                log(f"[PIPELINE] Cleaned existing directory (attempt {attempt + 1})")
+                break
+            except OSError as e:
+                log(f"[PIPELINE] Cleanup attempt {attempt + 1} failed: {e}")
+                if attempt == 4:
+                    # Last attempt - try system command
+                    try:
+                        import subprocess
+                        subprocess.run(['rm', '-rf', str(target)], check=True, timeout=10)
+                        log("[PIPELINE] Force cleanup successful")
+                    except Exception as force_e:
+                        log(f"[ERROR] Force cleanup failed: {force_e}")
+                        raise RuntimeError(f"Failed to cleanup pipeline directory: {force_e}")
+                time.sleep(0.5)
+
+    # Ensure parent directory exists
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    # Copy with verification
+    try:
+        shutil.copytree(PIPELINE_SRC, target)
+        log(f"[PIPELINE] Successfully copied to {target}")
+
+        # Verify copy
+        if not target.exists() or not any(target.iterdir()):
+            raise RuntimeError("Pipeline copy verification failed - directory empty or missing")
+
+    except Exception as e:
+        log(f"[ERROR] Pipeline copy failed: {e}")
+        raise
 
 
 @retry(
@@ -383,6 +458,7 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
 
 def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[str, str]:
     """Process a video job with comprehensive error handling and retry logic"""
+    job_dir = None
     try:
         log(f"Starting job processing: {job_id} (email: {email}, style: {style})")
 
@@ -405,6 +481,11 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             shutil.copy2(placeholder, out)
             video_url = f"{BASE_URL}/media/{job_id}.mp4"
             send_link_email(email, video_url, job_id)
+            
+            # Cleanup even in fake mode
+            job_dir = UPLOADS_DIR / job_id
+            cleanup_job_resources(job_dir)
+            
             return {"status": "done", "video_url": video_url}
 
         # Create job directory
@@ -478,12 +559,21 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
         except Exception as e:
             log(f"[WARNING] Failed to save completion status: {e}")
 
+        # Cleanup job resources after successful completion
+        cleanup_job_resources(job_dir)
+        log(f"[CLEANUP] Job {job_id} cleanup completed")
+
         return {"status": "done", "video_url": video_url}
 
     except Exception as e:
         log(f"[ERROR] Job {job_id} failed completely: {e}")
         import traceback
         log(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
+
+        # Cleanup even on failure
+        if job_dir:
+            cleanup_job_resources(job_dir)
+            log(f"[CLEANUP] Job {job_id} cleanup completed after failure")
 
         # Save failure status for persistent tracking
         try:
