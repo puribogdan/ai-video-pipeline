@@ -25,8 +25,8 @@ VIDEO_PROMPTS_JSON_PATH = SCENES_DIR / "video_prompts.json"
 OUT_DIR     = ROOT / "video_chunks"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Seedance-1-Pro on Replicate (high-quality I2V)
-DEFAULT_MODEL = "bytedance/seedance-1-pro"
+# Seedance-1-Lite on Replicate (high-quality I2V)
+DEFAULT_MODEL = "bytedance/seedance-1-lite"
 DEFAULT_RESOLUTION = "480p"
 DEFAULT_FPS = 24
 
