@@ -69,6 +69,7 @@ SYSTEM_PROMPT = (
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=12), stop=stop_after_attempt(3))
 def call_openai_full_words(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    print(f"[DEBUG] Making OpenAI API call to {MODEL_NAME}...")
     payload = {
         "constraints": {"min_secs": MIN_S, "max_secs": MAX_S},
         "words": words_payload,
@@ -78,19 +79,37 @@ def call_openai_full_words(words_payload: List[Dict[str, Any]]) -> List[Dict[str
             "Prefer 5–10 second scenes."
         ),
     }
-    resp = chat_json(
-        model=MODEL_NAME,  # ← switched to Instant
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(payload)},
-        ],
-        temperature=None,
-    )
-    data = json.loads(resp.choices[0].message.content)
-    scenes = data.get("scenes", [])
-    if not isinstance(scenes, list) or not scenes:
-        raise ValueError("Model returned no scenes.")
-    return scenes
+
+    try:
+        resp = chat_json(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(payload)},
+            ],
+            temperature=None,
+        )
+        print(f"[DEBUG] OpenAI API call successful, response length: {len(resp.choices[0].message.content)} characters")
+
+        data = json.loads(resp.choices[0].message.content)
+        scenes = data.get("scenes", [])
+        if not isinstance(scenes, list) or not scenes:
+            raise ValueError("Model returned no scenes.")
+        print(f"[DEBUG] Parsed {len(scenes)} scenes from response")
+        return scenes
+
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] Failed to parse JSON response from OpenAI: {e}")
+        if 'resp' in locals():
+            print(f"[ERROR] Raw response: {resp.choices[0].message.content}")
+        raise
+    except Exception as e:
+        print(f"[ERROR] OpenAI API call failed: {type(e).__name__}: {e}")
+        # Check if this is an OpenAI API error with response details
+        if hasattr(e, 'response') and hasattr(e.response, 'status_code'):
+            print(f"[ERROR] Response status: {e.response.status_code}")
+            print(f"[ERROR] Response text: {e.response.text}")
+        raise
 
 # ---------- Validation / rebuild ----------
 def validate_and_build(
@@ -140,23 +159,36 @@ def validate_and_build(
 def main():
     ap = argparse.ArgumentParser(description="Auto-split scenes using FULL subtitles (word-level).")
     ap.add_argument("--snap-integers", action="store_true",
-                    help="OPTIONAL: snap scene durations to integer 5..10s (will move off exact word times).")
+                     help="OPTIONAL: snap scene durations to integer 5..10s (will move off exact word times).")
     args = ap.parse_args()
 
     if not settings.OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY not set. Add it to your .env.")
 
+    print("[DEBUG] Loading words from subtitles...")
     words = load_words()
+    print(f"[DEBUG] Loaded {len(words)} words from subtitles")
+
     start0 = words[0]["start"]
     words_payload = [
         {"index": i, "start": round(w["start"] - start0, 3), "end": round(w["end"] - start0, 3), "word": w["word"]}
         for i, w in enumerate(words)
     ]
 
-    print("⚡ Sending FULL word-level subtitles to GPT-5 Instant to choose scene splits (5–10s preferred)…")
-    plan = call_openai_full_words(words_payload)
+    print(f"[DEBUG] Sending {len(words_payload)} word-level subtitles to {MODEL_NAME} to choose scene splits (5–10s preferred)…")
+    try:
+        plan = call_openai_full_words(words_payload)
+        print(f"[DEBUG] OpenAI returned {len(plan)} scene plans")
+    except Exception as e:
+        print(f"[ERROR] OpenAI API call failed: {e}")
+        import traceback
+        print(f"[ERROR] Full traceback: {traceback.format_exc()}")
+        raise
 
+    print("[DEBUG] Validating and building scenes...")
     scenes = validate_and_build(words, plan, snap_integers=args.snap_integers)
+    print(f"[DEBUG] Built {len(scenes)} scenes")
+
     write_scenes(scenes)
 
 if __name__ == "__main__":
