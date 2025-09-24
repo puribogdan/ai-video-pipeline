@@ -1,8 +1,9 @@
 # generate_video_chunks_seedance.py — Image→Video per scene (Seedance), over-generate by +1s and hard-trim
 from __future__ import annotations
-import os, sys, json, math, tempfile, uuid, io, time
+import os, sys, json, math, tempfile, uuid, io, time, logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 import PIL.Image
 if not hasattr(PIL.Image, "ANTIALIAS"):  # Pillow >=10
@@ -28,6 +29,22 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_MODEL = "bytedance/seedance-1-pro"
 DEFAULT_RESOLUTION = "480p"
 DEFAULT_FPS = 24
+
+# Configure logging for video chunk creation
+LOG_DIR = ROOT / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "video_chunk_creation.log"
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # ---- Windows-safe FS ops -----------------------------------------------------
 
@@ -381,8 +398,25 @@ def main():
             raw_len = trim_to_target(raw_path, out_path, target, args.fps)
             safe_unlink(raw_path)
 
+            # Log successful video chunk creation
+            timestamp = datetime.now().isoformat()
+            logger.info(f"VIDEO_CHUNK_CREATED - Scene: {scene_id}, Timestamp: {timestamp}, "
+                       f"Input: {img_path.name}, Output: {out_path.name}, "
+                       f"Target Duration: {target:.3f}s, Raw Duration: {raw_len:.3f}s, "
+                       f"Requested Duration: {request_int}s, Model: {args.model}, "
+                       f"Resolution: {args.resolution}, FPS: {args.fps}, "
+                       f"Scene Description: {scene_text[:100]}{'...' if len(scene_text) > 100 else ''}")
+
             print(f"✅ {out_path.name} (target {target:.3f}s, raw {raw_len:.3f}s, requested {request_int}s)")
         except Exception as e:
+            # Log failed video chunk creation
+            timestamp = datetime.now().isoformat()
+            logger.error(f"VIDEO_CHUNK_FAILED - Scene: {scene_id}, Timestamp: {timestamp}, "
+                        f"Input: {img_path.name}, Target Duration: {target:.3f}s, "
+                        f"Requested Duration: {request_int}s, Model: {args.model}, "
+                        f"Resolution: {args.resolution}, FPS: {args.fps}, "
+                        f"Error: {str(e)}, Scene Description: {scene_text[:100]}{'...' if len(scene_text) > 100 else ''}")
+
             print(f"⚠️  Scene {scene_id} failed: {e}")
             try:
                 safe_unlink(raw_path)
