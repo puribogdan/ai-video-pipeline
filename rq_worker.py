@@ -20,6 +20,8 @@ try:
     print(f"[DEBUG] Successfully imported worker_tasks", flush=True)
 except Exception as e:
     print(f"[ERROR] Failed to import worker_tasks: {e}", flush=True)
+    import traceback
+    print(f"[ERROR] Import traceback: {traceback.format_exc()}", flush=True)
     # Define a simple log function if import fails
     def log(msg):
         print(f"[worker] {msg}", flush=True)
@@ -78,6 +80,7 @@ class LoggingWorker(Worker):
             import traceback
             print(f"[ERROR] Traceback: {traceback.format_exc()}", flush=True)
             # Don't re-raise the exception, let the idle timer still work for debugging
+            raise  # Re-raise to prevent silent failures
 
     def start_idle_timer(self):
         """Start the idle timer that logs when no jobs are processed"""
@@ -143,8 +146,13 @@ def main():
 
         # Connect to Redis
         redis_conn = Redis.from_url(REDIS_URL)
-        redis_conn.ping()  # Test connection
-        print(f"[DEBUG] Redis connection successful", flush=True)
+        try:
+            redis_conn.ping()  # Test connection
+            print(f"[DEBUG] Redis connection successful", flush=True)
+        except Exception as e:
+            print(f"[ERROR] Redis connection failed: {e}", flush=True)
+            print(f"[ERROR] Please check REDIS_URL: {REDIS_URL}", flush=True)
+            sys.exit(1)
 
         # Create queue
         queue = Queue(QUEUE_NAME, connection=redis_conn)

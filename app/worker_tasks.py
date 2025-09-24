@@ -75,8 +75,8 @@ def ensure_mp3(src_path: Path) -> Path:
         raise
 
 
-def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
-    log(f"RUN (cwd={cwd}): {' '.join(cmd)}")
+def run_with_live_output(cmd: list[str], cwd: Path, env: dict, timeout: int = 1800) -> None:
+    log(f"RUN (cwd={cwd}, timeout={timeout}s): {' '.join(cmd)}")
     proc = subprocess.Popen(
         cmd, cwd=str(cwd), env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -84,12 +84,20 @@ def run_with_live_output(cmd: list[str], cwd: Path, env: dict) -> None:
     )
     assert proc.stdout is not None
     tail = deque(maxlen=200)
-    for line in proc.stdout:
-        print(line, end="", flush=True)
-        tail.append(line.rstrip())
-    ret = proc.wait()
-    if ret != 0:
-        raise RuntimeError("make_video.py failed (exit %d)\n--- tail ---\n%s" % (ret, "\n".join(tail)))
+
+    try:
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+            tail.append(line.rstrip())
+
+        ret = proc.wait(timeout=timeout)
+        if ret != 0:
+            raise RuntimeError("make_video.py failed (exit %d)\n--- tail ---\n%s" % (ret, "\n".join(tail)))
+    except subprocess.TimeoutExpired:
+        log(f"Process timed out after {timeout} seconds, terminating...")
+        proc.kill()
+        proc.wait()
+        raise RuntimeError(f"make_video.py timed out after {timeout} seconds")
 
 
 def _listdir_safe(p: Path) -> list[str]:
@@ -128,7 +136,15 @@ def _wait_for_any_audio(job_id: str, hint_path: Optional[Path], timeout_s: float
         if int(time.time() - t0) % 3 == 0:
             log(f"wait_for_audio: waiting… listing={_listdir_safe(job_dir)}")
         time.sleep(0.25)
-    raise RuntimeError(f"Audio not found in {job_dir}. Listing: {_listdir_safe(job_dir)}")
+
+    # Timeout reached - provide better error message
+    job_listing = _listdir_safe(job_dir)
+    if not job_dir.exists():
+        raise RuntimeError(f"Job directory does not exist: {job_dir}")
+    elif not job_listing:
+        raise RuntimeError(f"Job directory is empty: {job_dir}")
+    else:
+        raise RuntimeError(f"Audio not found in {job_dir} after {timeout_s}s. Listing: {job_listing}")
 
 
 def _find_portrait_file(job_dir: Path) -> Optional[Path]:
@@ -178,7 +194,7 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
         env["TRIM_EXTRA_ARGS"] = trim_extra
 
     cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name]
-    run_with_live_output(cmd, cwd=pipe_dir, env=env)
+    run_with_live_output(cmd, cwd=pipe_dir, env=env, timeout=1800)  # 30 minute timeout
 
     final_video = pipe_dir / "final_video.mp4"
     if not final_video.exists():
@@ -400,6 +416,8 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             final_video = _run_make_video(job_dir, hint_audio, style)
         except Exception as e:
             log(f"[ERROR] Video processing failed for job {job_id}: {e}")
+            import traceback
+            log(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
             raise RuntimeError(f"Video processing failed: {e}")
 
         # Copy to public media directory
