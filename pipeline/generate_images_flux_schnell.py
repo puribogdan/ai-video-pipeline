@@ -48,6 +48,23 @@ STYLE_LIBRARY: Dict[str, str] = {
     "van_gogh": "A Van Gogh–style animation with swirling brushstrokes, bold textures, vivid contrasting colors, and flowing painterly motion that feels alive like a moving canvas.",
     "felt_needle": "A kawaii stop-motion felt animation with soft fuzzy textures, chubby plush-like characters, pastel colors, and playful handmade charm.",
     "stop_motion_felt_clay": "A modern stop-motion animation inspired by Pokémon Concierge, with handcrafted felt and clay textures, plush-like characters, detailed miniature sets, soft natural lighting, and a cozy, soothing atmosphere.",
+    "hybrid_mix": "A hybrid animation style with flat 2D cartoon characters interacting in semi-realistic 3D worlds, inspired by The Amazing World of Gumball, with playful contrast and imaginative settings.",
+    "silhouette": "A silhouette animation style with characters shown in shadow or cut-out forms, mysterious yet safe, using high contrast lighting and expressive movement to tell folktale-like stories.",
+    "cutout_collage": "A playful cut-out collage animation style with magazine-style paper pieces, layered textures, and quirky movement, blending humor and creativity suitable for older kids.",
+    "graphic_novel": "A graphic novel–style animation with bold inking, dramatic shading, high contrast, and stylized panels, edgy and cinematic while staying approachable for younger audiences.",
+    "motion_comic": "A motion comic animation style where panels move with narration, limited character motion, bold manga-style linework, and text integration, designed for teen storytelling.",
+    "comic_book": "A comic book–style animation with bold outlines, halftone textures, vibrant colors, and dynamic action poses, evoking classic superhero comics.",
+    "art_deco": "An Art Deco–style animation with sleek geometric forms, metallic tones, elegant symmetry, and glamorous 1920s poster-inspired design.",
+    "impressionism": "An Impressionist-style animation with soft brushstrokes, dreamy lighting, pastel color palettes, and flowing transitions that feel hand-painted and emotional.",
+    "cubism": "A Cubist-style animation inspired by Picasso, with fragmented geometric faces, abstracted worlds, quirky proportions, and surreal overlapping perspectives.",
+    "tim_burton": "A Tim Burton–style animation with dark yet whimsical gothic charm, elongated characters, moody lighting, and playful spookiness that is eerie but not too scary.",
+    "dr_seuss": "A whimsical surrealist animation blending Dr. Seuss's playful, rhyming world with bizarre surrealist landscapes, quirky characters, and imaginative, dreamlike settings.",
+    "ink_parchment": "A Kung Fu Panda intro–style animation with parchment textures, bold ink-brush strokes, stylized martial arts characters, fast paper-cutout transitions, dynamic camera angles, and a red-and-gold Chinese folklore aesthetic.",
+    "ukiyo_e": "A Japanese-inspired animation style with hand-printed textures, ukiyo-e woodblock aesthetics, bold flat colors, flowing ink lines, and stylized characters moving like a traditional picture scroll or illustrated storybook.",
+    "sumi_e": "A sumi-e ink wash–style animation with flowing black brushstrokes, soft gradients, and expressive negative space, evoking traditional Japanese calligraphic painting.",
+    "byobu": "A Japanese folding screen–style animation with golden backgrounds, stylized cranes and pines, flowing seasonal motifs, and elegant hand-painted textures.",
+    "emakimono": "A Japanese emakimono picture scroll–style animation with horizontal narrative flow, stylized characters, delicate linework, and painted seasonal landscapes unfolding like a story scroll.",
+    "yamato_e": "A Yamato-e–style animation inspired by classical Japanese court paintings, with soft flowing lines, seasonal landscapes, gentle colors, and elegant storytelling of nature and human life.",
 }
 
 DEFAULT_STYLE_KEY = "kid"  # fallback if env not set
@@ -252,6 +269,7 @@ def main():
             pass
 
         desc = (s.get("scene_description") or s.get("narration") or "Simple scene.").strip()
+        refs = []  # Initialize refs to avoid unbound variable
 
         try:
             if portrait_path:
@@ -330,8 +348,8 @@ def main():
             prev_png = out_path
 
             entry: Dict[str, Any] = {"image_path": str(out_path), "mode": mode}
-            if mode == "edit":
-                entry["edit_refs"] = [str(p) for p in (refs if 'refs' in locals() else [])]
+            if mode == "edit" and 'refs' in locals():
+                entry["edit_refs"] = [str(p) for p in refs]
             manifest[sid] = entry
 
         except Exception as e:
