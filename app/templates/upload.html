@@ -43,6 +43,21 @@
         color: #666;
         font-size: 0.9em;
       }
+      button:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+      .file-selected {
+        color: #28a745;
+        font-size: 0.9em;
+        margin-top: 0.25em;
+      }
+      .file-not-selected {
+        color: #dc3545;
+        font-size: 0.9em;
+        margin-top: 0.25em;
+      }
     </style>
   </head>
   <body>
@@ -69,6 +84,9 @@
               accept="audio/mpeg,audio/wav,audio/m4a,audio/x-m4a,audio/mp4"
               required
             />
+            <div id="audio-status" class="file-not-selected"
+              >No audio file selected</div
+            >
           </div>
 
           <div>
@@ -151,7 +169,7 @@
           </div>
 
           <div>
-            <button type="submit">Submit</button>
+            <button type="submit" id="submit-btn" disabled>Submit</button>
           </div>
         </div>
       </form>
@@ -172,6 +190,59 @@
 
     <script>
       (function () {
+        // Audio validation functionality
+        const audioInput = document.getElementById('audio');
+        const submitBtn = document.getElementById('submit-btn');
+        const audioStatus = document.getElementById('audio-status');
+
+        function validateAudio() {
+          const file = audioInput.files[0];
+          if (file) {
+            // Check if file is an audio file
+            const validTypes = [
+              'audio/mpeg',
+              'audio/wav',
+              'audio/m4a',
+              'audio/x-m4a',
+              'audio/mp4',
+            ];
+            if (
+              validTypes.includes(file.type) ||
+              file.name.toLowerCase().match(/\.(mp3|wav|m4a|mp4)$/)
+            ) {
+              audioStatus.textContent = `✓ Audio selected: ${file.name}`;
+              audioStatus.className = 'file-selected';
+              submitBtn.disabled = false;
+              return true;
+            } else {
+              audioStatus.textContent =
+                '✗ Please select a valid audio file (MP3, WAV, M4A, MP4)';
+              audioStatus.className = 'file-not-selected';
+              submitBtn.disabled = true;
+              return false;
+            }
+          } else {
+            audioStatus.textContent = 'No audio file selected';
+            audioStatus.className = 'file-not-selected';
+            submitBtn.disabled = true;
+            return false;
+          }
+        }
+
+        // Add event listener for audio file selection
+        audioInput.addEventListener('change', validateAudio);
+
+        // Prevent form submission if no valid audio
+        document.querySelector('form').addEventListener('submit', function (e) {
+          if (!validateAudio()) {
+            e.preventDefault();
+            return false;
+          }
+        });
+
+        // Initialize button state
+        submitBtn.disabled = true;
+
         const jobId = "{{ job_id | default('') }}";
         if (!jobId) return;
         const statusEl = document.getElementById('status');
