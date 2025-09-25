@@ -162,10 +162,10 @@ def build_scene1_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
             "Match face structure, age, skin tone, and hair shape -ignore the background. "
             "Adapt the person to match the existing visual style"
             "Keep a friendly, appealing look suitable for a kids' story. "
-            
+            "If any text appears in the image render it in English language"
         )
     else:
-        return f"{desc}\n{style_line}"
+        return f"{desc}\n{style_line}\nIf any text appears in the image render it in English language"
 
 def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
     if has_portrait:
@@ -173,12 +173,14 @@ def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
             f"SCENE BRIEF: {desc}\n"
             f"{style_line}\n"
             "Maintain the protagonist's identity from the reference image(s) (match face & hair)."
+            "If any text appears in the image render it in English language"
         )
     else:
         return (
             f"SCENE BRIEF: {desc}\n"
             f"{style_line}\n"
             "Maintain visual continuity with the reference image(s)."
+            "If any text appears in the image render it in English language"
         )
 
 # -------------------- Model calls (with tiny retry) --------------------

@@ -321,6 +321,7 @@ def main():
                 "Preserve the exact style and subject from the start frame. "
 
                 "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
+                "If any text appears in the image render it in English language"
             )
         else:
             # Fallback if no scene description available
@@ -329,6 +330,7 @@ def main():
                 "Preserve the exact style and subject from the start frame. "
 
                 "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
+                "If any text appears in the image render it in English language"
             )
 
         # Log the video prompt for this scene
