@@ -174,8 +174,8 @@ def write_bytes(path: Path, data: bytes):
 # ---------- Seedance call ----------
 def try_seedance(model: str, image_path: Path, prompt: str, duration_s: int, resolution: str, fps: int):
     """
-    Call Seedance with desired duration. If API insists on 5s/10s, we CEIL to the next allowed
-    value so the result is never shorter than requested (no retries/padding later).
+    Call Seedance with desired duration. API accepts 5-12 seconds, so clamp to this range.
+    If API rejects the duration, try with a fallback within the valid range.
     """
     def _run(dur: int):
         with open(image_path, "rb") as f:
@@ -189,14 +189,17 @@ def try_seedance(model: str, image_path: Path, prompt: str, duration_s: int, res
                     "fps": int(fps),
                 },
             )
+
+    # Clamp duration to API's valid range (5-12 seconds)
+    clamped_duration = max(5, min(12, duration_s))
+
     try:
-        return _run(duration_s)
+        return _run(clamped_duration)
     except replicate.exceptions.ReplicateError as e:
-        # If API rejects the duration, try without the +1 second buffer
-        # This preserves the exact script timing instead of forcing to 5/10 seconds
-        if duration_s > 1:
-            fallback_duration = int(duration_s - 1)
-            print(f"⚠️  API rejected {duration_s}s duration, trying with exact script duration ({fallback_duration}s)")
+        # If API rejects the clamped duration, try with a fallback within the valid range
+        if clamped_duration > 5:
+            fallback_duration = clamped_duration - 1
+            print(f"⚠️  API rejected {clamped_duration}s duration, trying with fallback ({fallback_duration}s)")
             return _run(fallback_duration)
         raise
 
@@ -305,9 +308,9 @@ def main():
         # Exact target duration for the scene
         target = effective_target_for_scene(idx, scenes)
 
-        # Always ask Seedance for +1s longer than needed (ceil to avoid too short),
-        # e.g. target=4.2 -> desired=6 (ceil to 5 then +1 -> 6; but API might force 5 or 10)
-        desired = int(math.ceil(target)) + 1
+        # Use exact scene duration as integer (ceil to avoid too short),
+        # e.g. target=4.2 -> desired=5, target=6.7 -> desired=7
+        desired = int(math.ceil(target))
         request_int = max(2, desired)
 
         scene_text = s.get("scene_description") or s.get("narration") or ""
@@ -318,8 +321,8 @@ def main():
             prompt = (
                 f"{scene_text}\n"
                 "Animate gently with subtle parallax and small camera moves. "
-                "Preserve the exact style and subject from the start frame. "
-
+                "Preserve the exact style and characters from the frame. "
+                "Do not add new characters in unless specified"
                 "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
                 "If any text appears in the image render it in English language"
             )
@@ -327,8 +330,8 @@ def main():
             # Fallback if no scene description available
             prompt = (
                 "Animate gently with subtle parallax and small camera moves. "
-                "Preserve the exact style and subject from the start frame. "
-
+                "Preserve the exact style and characters from the frame."
+                "Do not add new characters in unless specified"
                 "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
                 "If any text appears in the image render it in English language"
             )
