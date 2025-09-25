@@ -322,18 +322,18 @@ def main():
                 f"{scene_text}\n"
                 "Animate gently with subtle parallax and small camera moves. "
                 "Preserve the exact style and characters from the frame. "
-                "Do not add new characters in unless specified"
-                "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
-                "If any text appears in the image render it in English language"
+                "Do not add new characters in unless specified. "
+                "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene. "
+                "If any text appears in the image render it in English language "
             )
         else:
             # Fallback if no scene description available
             prompt = (
                 "Animate gently with subtle parallax and small camera moves. "
-                "Preserve the exact style and characters from the frame."
-                "Do not add new characters in unless specified"
-                "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
-                "If any text appears in the image render it in English language"
+                "Preserve the exact style and characters from the frame. "
+                "Do not add new characters in unless specified. "
+                "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene. "
+                "If any text appears in the image render it in English language "
             )
 
         # Log the video prompt for this scene
