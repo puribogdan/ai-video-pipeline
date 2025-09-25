@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # --- Defaults for your pipeline (you can override in .env if you want) ---
     IMAGE_PROVIDER: str = Field(default="replicate:flux-schnell")
-    VIDEO_PROVIDER: str = Field(default="replicate:seedance-1-lite")
+    VIDEO_PROVIDER: str = Field(default="replicate:seedance-1-pro")
 
     # Useful paths if you want them elsewhere
     PROJECT_ROOT: Path = ROOT
