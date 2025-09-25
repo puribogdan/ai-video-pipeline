@@ -1,4 +1,4 @@
-# generate_video_chunks_seedance.py — Image→Video per scene (Seedance), over-generate by +1s and hard-trim
+# generate_video_chunks_seedance.py — Scene Description→Video per scene (Seedance), over-generate by +1s and hard-trim
 from __future__ import annotations
 import os, sys, json, math, tempfile, uuid, io, time, logging
 from pathlib import Path
@@ -88,38 +88,6 @@ def load_scenes() -> List[Dict[str, Any]]:
             raise ValueError(f"Scene {i} missing timing (need start_time and end_time).")
     return data
 
-def load_image_prompts() -> Dict[str, str]:
-    """Load image prompts from prompt.json file."""
-    if not PROMPT_JSON_PATH.exists():
-        raise FileNotFoundError(f"Missing {PROMPT_JSON_PATH}. Run generate_images_flux_schnell.py first.")
-    data = json.loads(PROMPT_JSON_PATH.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError("scenes/prompt.json must be a dictionary.")
-    # Extract just the prompt text for each scene
-    prompts = {}
-    for scene_id, scene_data in data.items():
-        if isinstance(scene_data, dict) and "prompt" in scene_data:
-            prompts[scene_id] = scene_data["prompt"]
-    return prompts
-
-def clean_video_prompt(image_prompt: str) -> str:
-    """Remove protagonist identity instructions from image prompt for video generation."""
-    # Remove the protagonist identity line that comes from image generation
-    lines = image_prompt.split('\n')
-    cleaned_lines = []
-
-    for line in lines:
-        # Skip the protagonist identity instruction
-        if "Maintain the protagonist's identity from the reference image" in line:
-            continue
-        if "match face & hair" in line:
-            continue
-        # Skip empty lines that might be left after removing the protagonist line
-        if line.strip() == "":
-            continue
-        cleaned_lines.append(line)
-
-    return '\n'.join(cleaned_lines).strip()
 
 def sec_len(s: Dict[str, Any]) -> float:
     return max(0.1, float(s["end_time"]) - float(s["start_time"]))
@@ -314,13 +282,7 @@ def main():
     if args.limit:
         scenes = scenes[:max(1, args.limit)]
 
-    # Load image prompts from prompt.json
-    try:
-        image_prompts = load_image_prompts()
-        print(f"✅ Loaded {len(image_prompts)} image prompts from {PROMPT_JSON_PATH}")
-    except FileNotFoundError as e:
-        print(f"⚠️  {e}")
-        image_prompts = {}
+    # Note: Image prompts are no longer loaded - using scene descriptions directly
 
     # Dictionary to store video prompts for logging
     video_prompts_log = {}
@@ -350,36 +312,28 @@ def main():
 
         scene_text = s.get("scene_description") or s.get("narration") or ""
 
-        # Get the specific image prompt for this scene
-        raw_image_prompt = image_prompts.get(scene_id, "")
-        image_prompt = ""  # Initialize for logging
-
-        if raw_image_prompt:
-            # Clean the image prompt by removing protagonist identity instructions
-            image_prompt = clean_video_prompt(raw_image_prompt)
-            # Use the cleaned image prompt as the base, then add animation instructions
+        # Use only the scene description as the base for video generation
+        if scene_text:
+            # Use the scene description as the base, then add animation instructions
             prompt = (
-                f"{image_prompt}\n"
+                f"{scene_text}\n"
                 "Animate gently with subtle parallax and small camera moves. "
                 "Preserve the exact style and subject from the start frame. "
 
                 "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
             )
         else:
-            # Fallback to original behavior if no image prompt available
+            # Fallback if no scene description available
             prompt = (
                 "Animate gently with subtle parallax and small camera moves. "
                 "Preserve the exact style and subject from the start frame. "
 
                 "Ensure realistic physics: characters must respect solid objects, no clipping through surfaces, consistent body structure throughout, and maintain spatial continuity in the scene."
-                f"Animate this moment: {scene_text}"
             )
 
         # Log the video prompt for this scene
         video_prompts_log[scene_id] = {
             "scene_description": scene_text,
-            "raw_image_prompt": raw_image_prompt,
-            "cleaned_image_prompt": image_prompt,
             "video_prompt": prompt,
             "duration_seconds": target,
             "model": args.model,

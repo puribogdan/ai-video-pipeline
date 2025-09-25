@@ -60,11 +60,11 @@ STYLE_LIBRARY: Dict[str, str] = {
     "fantasy_magic_glow": "A glowing fantasy style inspired by Studio Ghibli and Disney's Fantasia. Preserve luminous glows, soft gradients, spark-like particles, and magical enchanted settings. Preserve the exact style and subject from the start frame.",
     "surrealism_hybrid": "A surrealist whimsical style blending Dr. Seuss and Salvador Dalí. Preserve Seussian curves, surreal dreamscapes, and imaginative distorted forms. Preserve the exact style and subject from the start frame.",
     "ink_parchment": "A parchment style inspired by Qi Baishi and Xu Beihong. Preserve parchment textures, bold ink strokes, red-and-gold folkloric colors, and martial arts themes. Preserve the exact style and subject from the start frame.",
-    "ukiyo_e": "A woodblock style inspired by Hokusai and Hiroshige. Preserve bold outlines, flat layered colors, and dramatic wave and mountain compositions. Preserve the exact style and subject from the start frame.",
-    "sumi_e": "An ink wash style inspired by Sesshū Tōyō and Zen painters. Preserve bold flowing brushstrokes, soft gradients, and expressive negative space. Preserve the exact style and subject from the start frame.",
-    "byobu": "A gold screen style inspired by Kano Eitoku and Ogata Kōrin. Preserve shimmering gold leaf textures, stylized cranes, pines, and seasonal decorative motifs. Preserve the exact style and subject from the start frame.",
-    "emakimono": "A narrative scroll style inspired by the Ban Dainagon Ekotoba. Preserve continuous horizontal flow, delicate linework, and stylized story scenes. Preserve the exact style and subject from the start frame.",
-    "yamato_e": "A Yamato-e style inspired by the Tale of Genji scrolls. Preserve delicate brush lines, soft colors, and courtly seasonal motifs. Preserve the exact style and subject from the start frame.",
+    "japanese_woodblock": "A woodblock style inspired by Hokusai and Hiroshige. Preserve bold outlines, flat layered colors, and dramatic wave and mountain compositions. Preserve the exact style and subject from the start frame.",
+    "ink_wash": "An ink wash style inspired by Sesshū Tōyō and Zen painters. Preserve bold flowing brushstrokes, soft gradients, and expressive negative space. Preserve the exact style and subject from the start frame.",
+    "japanese_gold_screen": "A gold screen style inspired by Kano Eitoku and Ogata Kōrin. Preserve shimmering gold leaf textures, stylized cranes, pines, and seasonal decorative motifs. Preserve the exact style and subject from the start frame.",
+    "japanese_scroll": "A narrative scroll style inspired by the Ban Dainagon Ekotoba. Preserve continuous horizontal flow, delicate linework, and stylized story scenes. Preserve the exact style and subject from the start frame.",
+    "japanese_court": "A Yamato-e style inspired by the Tale of Genji scrolls. Preserve delicate brush lines, soft colors, and courtly seasonal motifs. Preserve the exact style and subject from the start frame.",
 }
 
 DEFAULT_STYLE_KEY = "kid_friendly_cartoon"  # fallback if env not set

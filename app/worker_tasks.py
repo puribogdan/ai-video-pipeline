@@ -262,7 +262,7 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
         log(f"Staging portrait via PORTRAIT_PATH={portrait}")
 
     # Forward selected style
-    env["STYLE_CHOICE"] = style  # Uses style keys from STYLE_LIBRARY (e.g., kid_friendly_cartoon, japanese_anime, etc.)
+    env["STYLE_CHOICE"] = style  # Uses style keys from STYLE_LIBRARY (e.g., kid_friendly_cartoon, japanese_kawaii, etc.)
 
     trim_extra = os.getenv("TRIM_EXTRA_ARGS", "").strip()
     if trim_extra:
