@@ -360,8 +360,9 @@ def main():
                 f"{scene_text}\n"
                 f"{animation_style}\n"
                 
-                "Do not add or duplicate characters in unless specified. "
+                "Do not add or duplicate characters unless specified. "
                 "If any text appears in the image render it in English language"
+                "Respect accurate perspective and depth, keeping realistic distance, proportions, and scale between foreground and background objects."
                
             )
         else:
@@ -369,8 +370,9 @@ def main():
             prompt = (
                 f"{animation_style}\n"
                 
-                "Do not add or duplicate characters in unless specified. "                
+                "Do not add or duplicate characters unless specified. "                
                 "If any text appears in the image render it in English language"
+                "Respect accurate perspective and depth, keeping realistic distance, proportions, and scale between foreground and background objects."
             )
 
         # Log the video prompt for this scene
