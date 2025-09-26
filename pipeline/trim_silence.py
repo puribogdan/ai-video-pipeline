@@ -45,11 +45,11 @@ ROOT = Path(__file__).parent
 DEFAULT_INPUT  = ROOT / "audio_input" / "input.mp3"
 DEFAULT_OUTPUT = ROOT / "audio_input" / "input_trimmed.mp3"
 
-# Trimming - Less sensitive defaults for better accuracy
-DEFAULT_TARGET_SILENCE_MS   = 1500  # Increased from 1000
-DEFAULT_KEEP_HEAD_MS        = 800   # Reduced from 1000
-DEFAULT_MIN_SILENCE_MS      = 1200  # Increased from 1000
-DEFAULT_THRESHOLD_OFFSET_DB = 25    # Increased from 20 (less sensitive)
+# Trimming - More sensitive defaults for better silence detection
+DEFAULT_TARGET_SILENCE_MS   = 800   # Reduced from 1500 for more aggressive cutting
+DEFAULT_KEEP_HEAD_MS        = 500   # Reduced from 800
+DEFAULT_MIN_SILENCE_MS      = 500   # Reduced from 1200 for more sensitive detection
+DEFAULT_THRESHOLD_OFFSET_DB = 20    # Reduced from 25 (more sensitive)
 DEFAULT_ABS_THRESH_DBFS     = None
 DEFAULT_SEEK_STEP_MS        = 5     # Reduced from 10 (finer detection)
 DEFAULT_CROSSFADE_MS        = 10
@@ -295,8 +295,8 @@ def enhance_auto(y: np.ndarray, sr: int) -> np.ndarray:
         y = np.stack([librosa.resample(y[:, c], orig_sr=sr, target_sr=target_sr) for c in range(ch)], axis=1)
         sr = target_sr
 
-    # 1) VAD mute non-speech - Less aggressive settings
-    y, speech_mask = apply_vad_mask(y, sr, aggressiveness=1, pad_ms=80, atten_db=75.0)
+    # 1) VAD mute non-speech - More aggressive settings for better silence detection
+    y, speech_mask = apply_vad_mask(y, sr, aggressiveness=0, pad_ms=30, atten_db=70.0)
 
     # 2) Clamp non-speech transients
     y = clamp_transients(y, sr, speech_mask, win_ms=10, jump_db=12.0, reduce_db=28.0)
@@ -365,8 +365,8 @@ def trim_only_oversized_silences_keep_head(
     if y.ndim == 1:
         y = y[:, None]
 
-    # Use VAD for more accurate silence detection - Less aggressive settings
-    _, speech_mask = apply_vad_mask(y, sr, aggressiveness=1, pad_ms=80, atten_db=75.0)
+    # Use VAD for more accurate silence detection - More aggressive settings for better silence detection
+    _, speech_mask = apply_vad_mask(y, sr, aggressiveness=0, pad_ms=30, atten_db=70.0)
 
     # Convert speech mask back to time segments
     silences = []
