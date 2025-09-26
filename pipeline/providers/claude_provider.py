@@ -9,7 +9,7 @@ class ClaudeProvider(LLMProvider):
     
     def __init__(self, api_key: str):
         self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = "claude-sonnet-4-20250514"
+        self.model = "claude-opus-4-1-20250805"
     
     def chat_json(self, messages: List[Dict], **kwargs) -> Dict:
         """
@@ -25,10 +25,14 @@ class ClaudeProvider(LLMProvider):
         # Convert OpenAI-style messages to Claude format
         claude_messages = []
         system_message = ""
-        
+
         for msg in messages:
             if msg["role"] == "system":
-                system_message = msg["content"]
+                # Enhance system message to be more strict about JSON-only output
+                enhanced_system = msg["content"]
+                if "JSON" in enhanced_system.upper() or "json" in enhanced_system.lower():
+                    enhanced_system += "\n\nIMPORTANT: Respond with ONLY valid JSON. No explanations, no markdown, no additional text. Just the JSON object."
+                system_message = enhanced_system
             else:
                 claude_messages.append({
                     "role": msg["role"],
@@ -51,7 +55,65 @@ class ClaudeProvider(LLMProvider):
             request_params["temperature"] = kwargs["temperature"]
             
         # Make the API call
-        response = self.client.messages.create(**request_params)
-        
-        # Return the parsed JSON content
-        return json.loads(response.content[0].text)
+        try:
+            response = self.client.messages.create(**request_params)
+        except Exception as api_error:
+            print(f"[ERROR] Claude API call failed: {type(api_error).__name__}: {api_error}")
+            raise api_error
+
+        # Add detailed logging to debug the response
+        print(f"[DEBUG] Claude API Response type: {type(response)}")
+        print(f"[DEBUG] Response content type: {type(response.content)}")
+        print(f"[DEBUG] Response content length: {len(response.content) if hasattr(response.content, '__len__') else 'N/A'}")
+
+        # Validate response structure
+        if not response.content:
+            print("[ERROR] Claude API returned empty content array!")
+            print(f"[ERROR] Full response object: {response}")
+            raise ValueError("Claude API returned empty content array")
+
+        if not hasattr(response.content[0], 'text') or response.content[0].text is None:
+            print("[ERROR] Claude API returned invalid content block!")
+            print(f"[ERROR] Content block: {response.content[0]}")
+            print(f"[ERROR] Full response object: {response}")
+            raise ValueError("Claude API returned invalid content block")
+
+        content_text = response.content[0].text.strip()
+
+        # Check if text is empty after stripping whitespace
+        if not content_text:
+            print("[ERROR] Claude API returned empty response content!")
+            print(f"[ERROR] Full response object: {response}")
+            raise ValueError("Claude API returned empty response content")
+
+        print(f"[DEBUG] Content text length: {len(content_text)}")
+        print(f"[DEBUG] Raw content: {repr(content_text)}")
+
+        # Handle markdown code blocks (common with newer models)
+        if content_text.startswith('```json'):
+            # Extract JSON from markdown code block
+            lines = content_text.split('\n')
+            json_lines = []
+            in_code_block = False
+
+            for line in lines:
+                if line.strip() == '```json':
+                    in_code_block = True
+                    continue
+                elif line.strip() == '```' and in_code_block:
+                    break
+                elif in_code_block:
+                    json_lines.append(line)
+
+            content_text = '\n'.join(json_lines).strip()
+            print(f"[DEBUG] Extracted JSON from markdown: {repr(content_text)}")
+
+        print(f"[DEBUG] Attempting to parse JSON: {content_text[:200]}...")
+
+        try:
+            return json.loads(content_text)
+        except json.JSONDecodeError as json_error:
+            print(f"[ERROR] Failed to parse JSON response from Claude: {json_error}")
+            print(f"[ERROR] Raw content: {repr(content_text)}")
+            print(f"[ERROR] Full response object: {response}")
+            raise ValueError(f"Claude API returned invalid JSON: {json_error}")

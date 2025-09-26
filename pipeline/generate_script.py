@@ -33,7 +33,7 @@ def write_scenes(scenes: List[Dict[str, Any]]):
     print(f"✅ Wrote {len(scenes)} scenes to: {OUT_PATH}")
 
 # ---------- LLM Provider ----------
-MODEL_NAME = "claude-sonnet-4-20250514"
+MODEL_NAME = "claude-opus-4-1-20250805"
 
 def chat_json(model: str, messages: list, temperature: float | None = None):
     """Strict-JSON chat using the configured LLM provider."""
