@@ -2,20 +2,24 @@
 """
 trim_silence.py  —  Trim long silences + strong automatic speech enhancement.
 
-Pipeline (no knobs needed):
+Pipeline (enhancement ENABLED BY DEFAULT):
   1) Trim only long silences (keep first part to avoid clipping words).
-  2) Enhance speech automatically:
-       • WebRTC VAD: detect speech; non-speech attenuated ~ -80 dB
+  2) Enhance speech automatically (BACKGROUND CLEANING + PODCAST EFFECT ACTIVE):
+       • WebRTC VAD: detect speech; non-speech attenuated ~ -75 dB
        • Transient clamp in non-speech (footsteps/door thuds)
        • Noise reduction (noisereduce) with strength picked from SNR
        • Tight speech band (120–7000 Hz) to kill rumble & extreme hiss
        • Gentle de-esser if sibilance detected
+       • Podcast effect: warmth, clarity, frequency shaping (80Hz-12kHz)
        • Loudness normalize to ~ -16 LUFS
        • Soft limiter for safety peaks
 
 Default IO:
   input  : ./audio_input/input.mp3
   output : ./audio_input/input_trimmed.mp3
+
+Use --no-enhance to disable background cleaning.
+Use --enhance-only to skip trimming and only clean audio.
 """
 
 from __future__ import annotations
@@ -41,13 +45,13 @@ ROOT = Path(__file__).parent
 DEFAULT_INPUT  = ROOT / "audio_input" / "input.mp3"
 DEFAULT_OUTPUT = ROOT / "audio_input" / "input_trimmed.mp3"
 
-# Trimming
-DEFAULT_TARGET_SILENCE_MS   = 1000
-DEFAULT_KEEP_HEAD_MS        = 1000
-DEFAULT_MIN_SILENCE_MS      = 1000
-DEFAULT_THRESHOLD_OFFSET_DB = 20
+# Trimming - Less sensitive defaults for better accuracy
+DEFAULT_TARGET_SILENCE_MS   = 1500  # Increased from 1000
+DEFAULT_KEEP_HEAD_MS        = 800   # Reduced from 1000
+DEFAULT_MIN_SILENCE_MS      = 1200  # Increased from 1000
+DEFAULT_THRESHOLD_OFFSET_DB = 25    # Increased from 20 (less sensitive)
 DEFAULT_ABS_THRESH_DBFS     = None
-DEFAULT_SEEK_STEP_MS        = 10
+DEFAULT_SEEK_STEP_MS        = 5     # Reduced from 10 (finer detection)
 DEFAULT_CROSSFADE_MS        = 10
 
 # Enhancement
@@ -157,6 +161,46 @@ def apply_deesser(y: np.ndarray, sr: int, attn_db: float) -> np.ndarray:
     scale = 1.0 - (10 ** (-attn_db / 20.0))
     return (y - scale * sib).astype(np.float32)
 
+def apply_podcast_effect(y: np.ndarray, sr: int) -> np.ndarray:
+    """
+    Apply podcast-style audio enhancement for professional sound.
+    Includes warmth, clarity, and frequency shaping.
+    """
+    y = np.atleast_2d(y)
+
+    # Step 1: Normalize to ensure consistent levels
+    y_norm = np.zeros_like(y)
+    for c in range(y.shape[1]):
+        # Simple peak normalization
+        peak = np.max(np.abs(y[:, c]))
+        if peak > 0:
+            y_norm[:, c] = y[:, c] / peak
+
+    # Step 2: High-pass filter (cut rumble below 80Hz)
+    y_hp = highpass(y_norm, sr, 80.0)
+
+    # Step 3: Low-pass filter (cut extreme highs above 12kHz)
+    y_lp = lowpass(y_hp, sr, 12000.0)
+
+    # Step 4: Add warmth with gentle bass boost
+    bass = lowpass(y_lp, sr, 200.0)
+    bass_boosted = apply_gain(bass, 4.0)  # +4dB bass boost
+    y_warm = y_lp + bass_boosted
+
+    # Step 5: Add clarity with treble boost
+    treble = highpass(y_warm, sr, 3000.0)
+    treble_boosted = apply_gain(treble, 3.0)  # +3dB treble boost
+    y_clarity = y_warm + treble_boosted
+
+    # Step 6: Final normalization to prevent clipping
+    final_peak = np.max(np.abs(y_clarity))
+    if final_peak > 0.95:  # Leave some headroom
+        y_final = y_clarity * (0.95 / final_peak)
+    else:
+        y_final = y_clarity
+
+    return y_final.astype(np.float32)
+
 # =============================================================================
 # VAD & transient clamp
 # =============================================================================
@@ -251,8 +295,8 @@ def enhance_auto(y: np.ndarray, sr: int) -> np.ndarray:
         y = np.stack([librosa.resample(y[:, c], orig_sr=sr, target_sr=target_sr) for c in range(ch)], axis=1)
         sr = target_sr
 
-    # 1) VAD mute non-speech
-    y, speech_mask = apply_vad_mask(y, sr, aggressiveness=3, pad_ms=140, atten_db=80.0)
+    # 1) VAD mute non-speech - Less aggressive settings
+    y, speech_mask = apply_vad_mask(y, sr, aggressiveness=1, pad_ms=80, atten_db=75.0)
 
     # 2) Clamp non-speech transients
     y = clamp_transients(y, sr, speech_mask, win_ms=10, jump_db=12.0, reduce_db=28.0)
@@ -286,14 +330,17 @@ def enhance_auto(y: np.ndarray, sr: int) -> np.ndarray:
     attn_db = detect_sibilance(sr, y_bp.mean(axis=1))
     y_ds = apply_deesser(y_bp, sr, attn_db)
 
-    # 6) Loudness normalize to ~ -16 LUFS
+    # 6) Apply podcast effect for professional sound
+    y_pod = apply_podcast_effect(y_ds, sr)
+
+    # 7) Loudness normalize to ~ -16 LUFS
     meter = pyln.Meter(sr)
     try:
-        lufs = meter.integrated_loudness(y_ds.mean(axis=1))
+        lufs = meter.integrated_loudness(y_pod.mean(axis=1))
     except Exception:
         lufs = -24.0
     gain_db = float(np.clip(TARGET_LUFS - lufs, -12.0, 12.0))
-    y_ln = apply_gain(y_ds, gain_db)
+    y_ln = apply_gain(y_pod, gain_db)
 
     # 7) Limiter (safety)
     y_out = soft_limiter(y_ln, margin_db=LIMITER_MARGIN_DB)
@@ -313,17 +360,41 @@ def trim_only_oversized_silences_keep_head(
     seek_step_ms: int,
     crossfade_ms: int,
 ) -> Tuple[AudioSegment, int, float]:
-    if absolute_thresh_dbfs is not None:
-        silence_thresh = float(absolute_thresh_dbfs)
-    else:
-        silence_thresh = max(audio.dBFS - float(threshold_offset_db), -60.0)
+    # Convert to numpy for VAD analysis
+    y, sr, ch = audiosegment_to_float_np(audio)
+    if y.ndim == 1:
+        y = y[:, None]
 
-    silences = detect_silence(
-        audio,
-        min_silence_len=min_silence_ms,
-        silence_thresh=silence_thresh,
-        seek_step=seek_step_ms,
-    )
+    # Use VAD for more accurate silence detection - Less aggressive settings
+    _, speech_mask = apply_vad_mask(y, sr, aggressiveness=1, pad_ms=80, atten_db=75.0)
+
+    # Convert speech mask back to time segments
+    silences = []
+    in_silence = False
+    silence_start = 0
+
+    for i, is_speech in enumerate(speech_mask):
+        if not is_speech and not in_silence:
+            in_silence = True
+            silence_start = i
+        elif is_speech and in_silence:
+            in_silence = False
+            silence_end = i
+            silence_duration = (silence_end - silence_start) / sr * 1000  # Convert to ms
+            if silence_duration >= min_silence_ms:
+                start_time = silence_start / sr * 1000
+                end_time = silence_end / sr * 1000
+                silences.append((int(start_time), int(end_time)))
+
+    # Handle silence at the end
+    if in_silence:
+        silence_end = len(speech_mask)
+        silence_duration = (silence_end - silence_start) / sr * 1000
+        if silence_duration >= min_silence_ms:
+            start_time = silence_start / sr * 1000
+            end_time = silence_end / sr * 1000
+            silences.append((int(start_time), int(end_time)))
+
     if not silences:
         return audio, 0, 0.0
 
@@ -379,6 +450,7 @@ def main():
     ap.add_argument("--crossfade_ms", type=int, default=DEFAULT_CROSSFADE_MS)
 
     ap.add_argument("--no-enhance", action="store_true", help="Disable enhancement stage (just trim + peak normalize).")
+    ap.add_argument("--enhance-only", action="store_true", help="Skip trimming, only run enhancement.")
 
     args = ap.parse_args()
 
@@ -418,26 +490,40 @@ def main():
         crossfade_ms=args.crossfade_ms,
     )
 
-    # Enhance
+    # Enhance (ENABLED BY DEFAULT - Background cleaning is active!)
     if args.no_enhance:
         out_audio = effects.normalize(processed)  # quick peak normalize
         enh_note = "disabled (peak normalize only)"
+    elif args.enhance_only:
+        # Skip trimming, only enhance the original audio
+        y, sr, ch = audiosegment_to_float_np(audio)
+        if y.ndim == 1:
+            y = y[:, None]
+        y_enh = enhance_auto(y, sr)
+        out_audio = float_np_to_audiosegment(y_enh, max(sr, MIN_SR), channels=ch)
+        enh_note = "VAD mute + transient clamp + NR + band-pass + de-ess + podcast effect + LUFS + limiter (no trimming)"
     else:
+        # Normal flow: trim then enhance
         y, sr, ch = audiosegment_to_float_np(processed)
         if y.ndim == 1:
             y = y[:, None]
         y_enh = enhance_auto(y, sr)
         out_audio = float_np_to_audiosegment(y_enh, max(sr, MIN_SR), channels=ch)
-        enh_note = "VAD mute + transient clamp + NR + band-pass + de-ess + LUFS + limiter"
+        enh_note = "VAD mute + transient clamp + NR + band-pass + de-ess + podcast effect + LUFS + limiter"
 
     # Export
     fmt = out_path.suffix.lstrip(".").lower() or "mp3"
     out_audio.export(out_path, format=fmt)
 
-    print(f"\n✅ Wrote: {out_path}")
+    print(f"\n[SUCCESS] Wrote: {out_path}")
     print(f"   original: {len(audio)/1000:.2f}s | trimmed: {len(processed)/1000:.2f}s")
     print(f"   silences shortened: {n_trimmed} | time removed: {seconds_removed:.2f}s")
     print(f"   enhancement        : {enh_note}")
+
+    if not args.no_enhance:
+        print(f"   [INFO] Background cleaning: ACTIVE (noise reduction, VAD, filtering, podcast effect)")
+    else:
+        print(f"   [WARNING] Background cleaning: DISABLED (--no-enhance flag used)")
 
 
 if __name__ == "__main__":
