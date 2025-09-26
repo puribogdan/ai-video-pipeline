@@ -359,17 +359,17 @@ def main():
             prompt = (
                 f"{scene_text}\n"
                 f"{animation_style}\n"
-                "Preserve the exact style and characters from the frame. "
+                
                 "Do not add or duplicate characters in unless specified. "
+                "If any text appears in the image render it in English language"
                
             )
         else:
             # Fallback if no scene description available
             prompt = (
                 f"{animation_style}\n"
-                "Preserve the exact style and characters from the frame. "
-                "Do not add or duplicate characters in unless specified. "
                 
+                "Do not add or duplicate characters in unless specified. "                
                 "If any text appears in the image render it in English language"
             )
 
