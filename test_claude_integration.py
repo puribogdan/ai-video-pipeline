@@ -46,7 +46,7 @@ def test_claude_integration():
 
         print("Sending test request to LLM...")
         response = provider.chat_json(
-            model="claude-sonnet-4-20250514",
+            model="claude-opus-4-1-20250805",
             messages=test_messages,
             max_tokens=100
         )
