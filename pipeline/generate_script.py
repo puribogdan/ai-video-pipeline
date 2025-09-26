@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
 from tenacity import retry, wait_exponential, stop_after_attempt
-from openai import OpenAI
+from providers.factory import get_llm_provider
 from config import settings
 
 PROJECT_ROOT = Path(__file__).parent
@@ -32,18 +32,16 @@ def write_scenes(scenes: List[Dict[str, Any]]):
     OUT_PATH.write_text(json.dumps(scenes, indent=2), encoding="utf-8")
     print(f"✅ Wrote {len(scenes)} scenes to: {OUT_PATH}")
 
-# ---------- OpenAI ----------
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
-
-# Use the Instant model (fast responses)
-MODEL_NAME = "gpt-5"
+# ---------- LLM Provider ----------
+MODEL_NAME = "claude-sonnet-4-20250514"
 
 def chat_json(model: str, messages: list, temperature: float | None = None):
-    """Strict-JSON chat; Thinking models may ignore temperature."""
-    kwargs = {"model": model, "messages": messages, "response_format": {"type": "json_object"}}
-    if temperature is not None and not model.startswith("gpt-5"):
+    """Strict-JSON chat using the configured LLM provider."""
+    provider = get_llm_provider()
+    kwargs = {"model": model, "messages": messages}
+    if temperature is not None:
         kwargs["temperature"] = temperature
-    return client.chat.completions.create(**kwargs)
+    return provider.chat_json(**kwargs)
 
 SYSTEM_PROMPT = (
     "You are a careful video editor.\n"
@@ -68,8 +66,8 @@ SYSTEM_PROMPT = (
 )
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=12), stop=stop_after_attempt(3))
-def call_openai_full_words(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print(f"[DEBUG] Making OpenAI API call to {MODEL_NAME}...")
+def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    print(f"[DEBUG] Making LLM API call to {MODEL_NAME}...")
     payload = {
         "constraints": {"min_secs": MIN_S, "max_secs": MAX_S},
         "words": words_payload,
@@ -81,7 +79,7 @@ def call_openai_full_words(words_payload: List[Dict[str, Any]]) -> List[Dict[str
     }
 
     try:
-        resp = chat_json(
+        response_data = chat_json(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -89,26 +87,23 @@ def call_openai_full_words(words_payload: List[Dict[str, Any]]) -> List[Dict[str
             ],
             temperature=None,
         )
-        print(f"[DEBUG] OpenAI API call successful, response length: {len(resp.choices[0].message.content)} characters")
+        print(f"[DEBUG] LLM API call successful, response length: {len(json.dumps(response_data))} characters")
 
-        data = json.loads(resp.choices[0].message.content)
-        scenes = data.get("scenes", [])
+        scenes = response_data.get("scenes", [])
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("Model returned no scenes.")
         print(f"[DEBUG] Parsed {len(scenes)} scenes from response")
         return scenes
 
     except json.JSONDecodeError as e:
-        print(f"[ERROR] Failed to parse JSON response from OpenAI: {e}")
-        if 'resp' in locals():
-            print(f"[ERROR] Raw response: {resp.choices[0].message.content}")
+        print(f"[ERROR] Failed to parse JSON response from LLM: {e}")
+        try:
+            print(f"[ERROR] Raw response: {json.dumps(response_data)}")
+        except:
+            print("[ERROR] Could not serialize response data")
         raise
     except Exception as e:
-        print(f"[ERROR] OpenAI API call failed: {type(e).__name__}: {e}")
-        # Check if this is an OpenAI API error with response details
-        if hasattr(e, 'response') and hasattr(e.response, 'status_code'):
-            print(f"[ERROR] Response status: {e.response.status_code}")
-            print(f"[ERROR] Response text: {e.response.text}")
+        print(f"[ERROR] LLM API call failed: {type(e).__name__}: {e}")
         raise
 
 # ---------- Validation / rebuild ----------
@@ -125,8 +120,12 @@ def validate_and_build(
     used: List[int] = []
     scenes: List[Dict[str, Any]] = []
     for it in plan:
-        a = int(it.get("start_word_index"))
-        b = int(it.get("end_word_index"))
+        start_idx = it.get("start_word_index")
+        end_idx = it.get("end_word_index")
+        if start_idx is None or end_idx is None:
+            raise ValueError(f"Missing word indices in scene: {it}")
+        a = int(start_idx)
+        b = int(end_idx)
         if a < 0 or b < a or b >= n:
             raise ValueError(f"Invalid word index range [{a},{b}]")
         used.extend(range(a, b + 1))
@@ -162,8 +161,8 @@ def main():
                      help="OPTIONAL: snap scene durations to integer 5..10s (will move off exact word times).")
     args = ap.parse_args()
 
-    if not settings.OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY not set. Add it to your .env.")
+    if not settings.CLAUDE_API_KEY and not settings.OPENAI_API_KEY:
+        raise RuntimeError("Neither CLAUDE_API_KEY nor OPENAI_API_KEY is set. Add at least one to your .env.")
 
     print("[DEBUG] Loading words from subtitles...")
     words = load_words()
@@ -177,10 +176,10 @@ def main():
 
     print(f"[DEBUG] Sending {len(words_payload)} word-level subtitles to {MODEL_NAME} to choose scene splits (5–10s preferred)…")
     try:
-        plan = call_openai_full_words(words_payload)
-        print(f"[DEBUG] OpenAI returned {len(plan)} scene plans")
+        plan = call_llm_api(words_payload)
+        print(f"[DEBUG] LLM returned {len(plan)} scene plans")
     except Exception as e:
-        print(f"[ERROR] OpenAI API call failed: {e}")
+        print(f"[ERROR] LLM API call failed: {e}")
         import traceback
         print(f"[ERROR] Full traceback: {traceback.format_exc()}")
         raise

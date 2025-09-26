@@ -19,10 +19,11 @@ class Settings(BaseSettings):
     )
 
     # --- API keys (optional: scripts will validate when needed) ---
-    DEEPGRAM_API_KEY: Optional[str]      = Field(default=None, env="DEEPGRAM_API_KEY")
-    OPENAI_API_KEY: Optional[str]        = Field(default=None, env="OPENAI_API_KEY")
-    REPLICATE_API_TOKEN: Optional[str]   = Field(default=None, env="REPLICATE_API_TOKEN")
-    LUMAAI_API_KEY: Optional[str]        = Field(default=None, env="LUMAAI_API_KEY")
+    DEEPGRAM_API_KEY: Optional[str]      = Field(default=None)
+    OPENAI_API_KEY: Optional[str]        = Field(default=None)
+    CLAUDE_API_KEY: Optional[str]        = Field(default=None)
+    REPLICATE_API_TOKEN: Optional[str]   = Field(default=None)
+    LUMAAI_API_KEY: Optional[str]        = Field(default=None)
 
     # --- Defaults for your pipeline (you can override in .env if you want) ---
     IMAGE_PROVIDER: str = Field(default="replicate:flux-schnell")
