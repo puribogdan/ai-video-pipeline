@@ -44,7 +44,7 @@ def main():
     # - concat demuxer reads chunks sequentially (low RAM)
     # - copy video stream (no re-encode); encode audio to AAC
     # - apad pads audio with silence so video length is preserved
-    # - -shortest stops at the end of video (audio is now >= video thanks to apad)
+    # - Video plays to full length (no -shortest cutting)
     cmd = [
         "ffmpeg", "-y",
         "-f", "concat", "-safe", "0", "-i", str(LIST_FILE),
@@ -53,7 +53,7 @@ def main():
         "-map", "0:v:0", "-map", "[a]",
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
+        # Removed "-shortest" to prevent cutting video endings
         "-movflags", "+faststart",
         str(FINAL_VIDEO),
     ]
