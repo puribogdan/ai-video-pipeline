@@ -25,8 +25,8 @@ VIDEO_PROMPTS_JSON_PATH = SCENES_DIR / "video_prompts.json"
 OUT_DIR     = ROOT / "video_chunks"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Seedance-1-Pro on Replicate (high-quality I2V)
-DEFAULT_MODEL = "bytedance/seedance-1-pro"
+# Kling v2.5 Turbo Pro on Replicate (high-quality I2V)
+DEFAULT_MODEL = "kwaivgi/kling-v2.5-turbo-pro"
 DEFAULT_RESOLUTION = "480p"
 DEFAULT_FPS = 24
 
@@ -307,7 +307,7 @@ def main():
         print("ERROR: Missing REPLICATE_API_TOKEN in .env", file=sys.stderr)
         sys.exit(1)
 
-    ap = argparse.ArgumentParser(description="Image→Video per scene via Seedance-1-Lite (Replicate), over-generate +1s and trim.")
+    ap = argparse.ArgumentParser(description="Image→Video per scene via Kling v2.5 Turbo Pro (Replicate), with scene-based duration logic.")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--resolution", default=DEFAULT_RESOLUTION, help="540p, 720p, 1080p")
     ap.add_argument("--fps", type=int, default=DEFAULT_FPS)
@@ -342,10 +342,12 @@ def main():
         # Exact target duration for the scene
         target = effective_target_for_scene(idx, scenes)
 
-        # Use exact scene duration as integer (ceil to avoid too short),
-        # e.g. target=4.2 -> desired=5, target=6.7 -> desired=7
-        desired = int(math.ceil(target))
-        request_int = max(2, desired)
+        # New duration logic: if scene <= 5 seconds, create 5 seconds video
+        # If scene > 5 seconds, create 10 seconds video
+        if target <= 5.0:
+            request_int = 5
+        else:
+            request_int = 10
 
         scene_text = s.get("scene_description") or s.get("narration") or ""
 
