@@ -397,7 +397,16 @@ def main():
                 raise RuntimeError(f"No usable video bytes in model output (scene {scene_id}).")
 
             write_bytes(raw_path, data)
-            raw_len = trim_to_target(raw_path, out_path, target, args.fps)
+
+            # Only trim for non-last scenes - keep last scene untrimmed
+            if idx == len(scenes) - 1:
+                # For the last scene, use raw video without trimming
+                import shutil
+                shutil.copy2(raw_path, out_path)
+                raw_len = VideoFileClip(str(raw_path), audio=False).duration or 0.0
+            else:
+                raw_len = trim_to_target(raw_path, out_path, target, args.fps)
+
             safe_unlink(raw_path)
 
             # Log successful video chunk creation
