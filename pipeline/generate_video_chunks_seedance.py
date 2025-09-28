@@ -344,7 +344,11 @@ def main():
 
         # New duration logic: if scene <= 5 seconds, create 5 seconds video
         # If scene > 5 seconds, create 10 seconds video
-        if target <= 5.0:
+        # For last scene, always use 10 seconds to avoid cutting too fast
+        if idx == len(scenes) - 1:
+            # Last scene: always request 10 seconds for natural pacing
+            request_int = 10
+        elif target <= 5.0:
             request_int = 5
         else:
             request_int = 10
