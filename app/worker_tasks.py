@@ -199,17 +199,50 @@ def _find_any_audio(job_dir: Path) -> Optional[Path]:
 def _wait_for_any_audio(job_id: str, hint_path: Optional[Path], timeout_s: float = 180.0) -> Path:
     t0 = time.time()
     job_dir = UPLOADS_DIR / job_id
-    log(f"wait_for_audio: job_dir={job_dir}, hint={hint_path}")
+    log(f"[DEBUG] _wait_for_any_audio: job_dir={job_dir}, hint={hint_path}, timeout={timeout_s}s")
+
+    # Debug: Check job directory state
+    log(f"[DEBUG] Job directory exists: {job_dir.exists()}")
+    if job_dir.exists():
+        try:
+            contents = list(job_dir.iterdir())
+            log(f"[DEBUG] Job directory contents: {[p.name for p in contents]}")
+            for p in contents:
+                if p.is_file():
+                    log(f"[DEBUG] File {p.name}: size={p.stat().st_size}, mime={mimetypes.guess_type(str(p))}")
+        except Exception as e:
+            log(f"[DEBUG] Error listing directory: {e}")
+
     while time.time() - t0 < timeout_s:
-        if hint_path and hint_path.exists() and hint_path.stat().st_size > 0:
-            log(f"wait_for_audio: found hint {hint_path} ({hint_path.stat().st_size} bytes)")
-            return hint_path
-        found = _find_any_audio(job_dir) if job_dir.exists() else None
-        if found:
-            log(f"wait_for_audio: discovered audio {found} ({found.stat().st_size} bytes)")
-            return found
+        # Check hint path first
+        if hint_path:
+            log(f"[DEBUG] Checking hint path: {hint_path}")
+            log(f"[DEBUG] Hint path exists: {hint_path.exists()}")
+            if hint_path.exists():
+                size = hint_path.stat().st_size
+                log(f"[DEBUG] Hint path size: {size} bytes")
+                if size > 0:
+                    log(f"[DEBUG] Found valid hint {hint_path} ({size} bytes)")
+                    return hint_path
+                else:
+                    log(f"[DEBUG] Hint path exists but is empty (0 bytes)")
+
+        # Look for any audio file in job directory
+        if job_dir.exists():
+            found = _find_any_audio(job_dir)
+            if found:
+                log(f"[DEBUG] Discovered audio file: {found} ({found.stat().st_size} bytes)")
+                return found
+            else:
+                log(f"[DEBUG] No audio files found in job directory")
+        else:
+            log(f"[DEBUG] Job directory does not exist")
+
         if int(time.time() - t0) % 3 == 0:
-            log(f"wait_for_audio: waiting… listing={_listdir_safe(job_dir)}")
+            elapsed = time.time() - t0
+            listing = _listdir_safe(job_dir)
+            log(f"[DEBUG] Still waiting after {elapsed:.1f}s... listing={listing}")
+
         time.sleep(0.25)
 
     # Timeout reached - provide better error message
@@ -239,6 +272,23 @@ def _find_portrait_file(job_dir: Path) -> Optional[Path]:
 
 
 def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Path:
+    log(f"[DEBUG] _run_make_video called with job_dir={job_dir}, hint_audio={hint_audio}")
+
+    # Debug: List all files in job directory before waiting
+    if job_dir.exists():
+        all_files = [p.name for p in job_dir.iterdir()]
+        log(f"[DEBUG] Job directory contents before audio wait: {all_files}")
+    else:
+        log(f"[DEBUG] Job directory does not exist: {job_dir}")
+
+    # Debug: Check if hint_audio exists and what it contains
+    if hint_audio:
+        log(f"[DEBUG] Hint audio path: {hint_audio}")
+        log(f"[DEBUG] Hint audio exists: {hint_audio.exists()}")
+        if hint_audio.exists():
+            log(f"[DEBUG] Hint audio size: {hint_audio.stat().st_size} bytes")
+            log(f"[DEBUG] Hint audio mime type: {mimetypes.guess_type(str(hint_audio))}")
+
     audio_src = _wait_for_any_audio(job_id=job_dir.name, hint_path=hint_audio)
 
     _copy_pipeline_to(job_dir)
@@ -460,6 +510,7 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
     """Process a video job with comprehensive error handling and retry logic"""
     job_dir = None
     try:
+        log(f"[DEBUG] process_job called with job_id={job_id}, email={email}, upload_path={upload_path}, style={style}")
         log(f"Starting job processing: {job_id} (email: {email}, style: {style})")
 
         # Update status: active (job started)
@@ -497,7 +548,31 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             raise RuntimeError(f"Failed to create job directory: {e}")
 
         hint_audio = Path(upload_path) if upload_path else None
+        log(f"[DEBUG] Upload path provided: {upload_path}")
+        log(f"[DEBUG] Hint audio path: {hint_audio}")
         log(f"Job dir initial listing: {sorted([p.name for p in job_dir.iterdir()]) if job_dir.exists() else []}")
+
+        # Validate that the audio file exists before proceeding
+        if not hint_audio or not hint_audio.exists():
+            # Try to find any audio file in the job directory
+            found_audio = _find_any_audio(job_dir)
+            if found_audio:
+                log(f"[INFO] Using found audio file instead of missing hint: {found_audio}")
+                hint_audio = found_audio
+            else:
+                # No audio file found - this is a critical error
+                available_files = [p.name for p in job_dir.iterdir()] if job_dir.exists() else []
+                raise RuntimeError(
+                    f"Audio file not found. Upload path: {upload_path}, "
+                    f"Job directory: {job_dir}, Available files: {available_files}"
+                )
+
+        # Validate audio file is not empty
+        audio_size = hint_audio.stat().st_size
+        if audio_size == 0:
+            raise RuntimeError(f"Audio file exists but is empty (0 bytes): {hint_audio}")
+
+        log(f"[INFO] Audio file validated: {hint_audio} ({audio_size} bytes)")
 
         # Run the main video processing pipeline
         try:

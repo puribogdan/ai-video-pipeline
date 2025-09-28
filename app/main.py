@@ -87,6 +87,18 @@ async def submit(
 
     job_id = str(uuid.uuid4())
     user_dir = UPLOADS_DIR / job_id
+
+    # Ensure uploads directory is writable
+    try:
+        test_file = user_dir / ".write_test"
+        test_file.parent.mkdir(parents=True, exist_ok=True)
+        test_file.write_bytes(b"test")
+        test_file.unlink()  # Clean up test file
+        print(f"[DEBUG] Uploads directory is writable: {user_dir}", flush=True)
+    except Exception as e:
+        print(f"[ERROR] Uploads directory not writable: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Upload directory not writable: {e}")
+
     user_dir.mkdir(parents=True, exist_ok=True)
 
     # Save audio with original (sanitized) name
@@ -104,19 +116,39 @@ async def submit(
             portrait_name = _safe_name(portrait.filename)
             (user_dir / portrait_name).write_bytes(img)
 
-    # verify write
+    # verify write with more robust checking
+    print(f"[DEBUG] Verifying audio file write to {audio_path}", flush=True)
     deadline = time.time() + 10
+    verification_attempts = 0
     while time.time() < deadline:
         try:
-            if audio_path.exists() and audio_path.stat().st_size == len(data):
-                break
-        except FileNotFoundError:
-            pass
+            verification_attempts += 1
+            if audio_path.exists():
+                saved_size = audio_path.stat().st_size
+                print(f"[DEBUG] Verification attempt {verification_attempts}: file exists, size={saved_size}, expected={len(data)}", flush=True)
+                if saved_size == len(data) and saved_size > 0:
+                    print(f"[DEBUG] Audio file verification successful", flush=True)
+                    break
+            else:
+                print(f"[DEBUG] Verification attempt {verification_attempts}: file does not exist yet", flush=True)
+        except FileNotFoundError as e:
+            print(f"[DEBUG] Verification attempt {verification_attempts}: FileNotFoundError: {e}", flush=True)
+        except Exception as e:
+            print(f"[DEBUG] Verification attempt {verification_attempts}: Unexpected error: {e}", flush=True)
         time.sleep(0.1)
-    if not (audio_path.exists() and audio_path.stat().st_size == len(data)):
-        raise HTTPException(status_code=500, detail="Upload write verification failed")
 
-    print(f"[web] saved upload -> {audio_path} ({len(data)} bytes)", flush=True)
+    # Final verification
+    if not audio_path.exists():
+        raise HTTPException(status_code=500, detail=f"Audio file was not created: {audio_path}")
+
+    final_size = audio_path.stat().st_size
+    if final_size != len(data):
+        raise HTTPException(status_code=500, detail=f"Audio file size mismatch: expected {len(data)} bytes, got {final_size} bytes")
+
+    if final_size == 0:
+        raise HTTPException(status_code=500, detail="Audio file was created but is empty (0 bytes)")
+
+    print(f"[web] saved upload -> {audio_path} ({final_size} bytes)", flush=True)
     try:
         print(f"[web] dir listing {user_dir}: {[p.name for p in user_dir.glob('*')]}", flush=True)
     except Exception:
@@ -124,6 +156,11 @@ async def submit(
 
     # Enqueue with style forwarded to worker
     from app.worker_tasks import process_job
+    print(f"[DEBUG] Enqueuing job {job_id} with audio_path={audio_path}, style={style}", flush=True)
+    print(f"[DEBUG] Audio file exists: {audio_path.exists()}", flush=True)
+    if audio_path.exists():
+        print(f"[DEBUG] Audio file size: {audio_path.stat().st_size} bytes", flush=True)
+
     rq_job = queue.enqueue(
         process_job,
         job_id,
