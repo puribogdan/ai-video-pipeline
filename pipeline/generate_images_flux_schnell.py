@@ -158,7 +158,10 @@ def build_scene1_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
         return (
             f"{desc}\n"
             f"{style_line}\n"
-            "Cast the person from the reference photo as the main protagonist. "
+            "Use the uploaded image as the likeness for the protagonist only when the protagonist in the story is a human character. "
+            "If the protagonist is an animal, creature, or non-living object, do not use the uploaded image as that protagonist. "
+            "Instead, insert the likeness from the uploaded image as one of the human characters in the story (if there is at least one). "
+            "Always ensure the uploaded likeness appears only in a natural, human role."
             "Match face structure, age, skin tone, and hair shape -ignore the background. "
             "Adapt the person to match the existing visual style"
             "Keep a friendly, appealing look suitable for a kids' story. "
@@ -172,7 +175,7 @@ def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
         return (
             f"SCENE BRIEF: {desc}\n"
             f"{style_line}\n"
-            "Maintain the protagonist's identity from the reference image(s) (match face & hair)."
+            
             "If any text appears in the image render it in English language"
         )
     else:
