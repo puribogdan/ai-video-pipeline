@@ -217,10 +217,28 @@ async def submit(
 
 @app.get("/status/{job_id}")
 async def status(job_id: str):
-    """Get job status from Redis or file-based tracking for completed jobs"""
+    """Get job status from file-based tracking (primary) and Redis (fallback for active jobs)"""
     from rq.job import Job
 
-    # First, try to fetch from Redis (active jobs)
+    # First, check if job directory exists
+    job_dir = UPLOADS_DIR / job_id
+    if not job_dir.exists():
+        return {"state": "unknown", "error": f"Job directory not found: {job_id}"}
+
+    # Check for completion file first (most reliable method)
+    completion_file = job_dir / "completion_status.json"
+    if completion_file.exists():
+        try:
+            with open(completion_file, 'r') as f:
+                completion_data = json.load(f)
+            # Map old state names to new ones for backward compatibility
+            if completion_data.get("state") == "finished":
+                completion_data["state"] = "done"
+            return completion_data
+        except Exception as file_error:
+            print(f"[WARNING] Failed to read completion file for job {job_id}: {file_error}", flush=True)
+
+    # If no completion file, try Redis for active jobs
     try:
         job = Job.fetch(job_id, connection=redis)
         meta = job.meta or {}
@@ -240,21 +258,21 @@ async def status(job_id: str):
             return {"state": mapped_state, "meta": meta}
 
     except Exception as e:
-        # Job not found in Redis - check if it's a completed job saved to file
-        completion_file = UPLOADS_DIR / job_id / "completion_status.json"
-        if completion_file.exists():
-            try:
-                with open(completion_file, 'r') as f:
-                    completion_data = json.load(f)
-                # Map old state names to new ones for backward compatibility
-                if completion_data.get("state") == "finished":
-                    completion_data["state"] = "done"
-                return completion_data
-            except Exception as file_error:
-                return {"state": "unknown", "error": f"Job not found in Redis and failed to read completion file: {str(file_error)}"}
+        # Job not found in Redis - this is normal for completed jobs that have been cleaned up
+        print(f"[DEBUG] Job {job_id} not found in Redis (may be completed): {str(e)}", flush=True)
 
-        # Job truly doesn't exist
-        return {"state": "unknown", "error": f"Job not found: {str(e)}"}
+    # No completion file and no active job - job is likely queued or processing
+    # Check if job directory has any content (indicates job was created)
+    try:
+        dir_contents = list(job_dir.iterdir())
+        if dir_contents:
+            # Job directory exists with content - job is likely queued or processing
+            return {"state": "queue", "message": "Job is queued or processing"}
+        else:
+            # Empty job directory - job may have been cleaned up
+            return {"state": "unknown", "error": f"Job directory exists but is empty: {job_id}"}
+    except Exception as e:
+        return {"state": "unknown", "error": f"Error checking job directory: {str(e)}"}
 
 
 def _map_rq_state_to_custom(rq_state: str) -> str:

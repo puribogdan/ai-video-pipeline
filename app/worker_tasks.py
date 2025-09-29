@@ -571,11 +571,13 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
         log(f"Starting job processing: {job_id} (email: {email}, style: {style})")
         log(f"[DEBUG] Upload path type: {type(upload_path)}")
         log(f"[DEBUG] Upload path string: {str(upload_path)}")
+        log(f"[INFO] Worker is now processing job {job_id} - this confirms the job was dequeued successfully")
 
         # Update status: active (job started)
         try:
             from app.main import _save_job_completion
             _save_job_completion(job_id, "active", {"message": "Job started - initializing video processing pipeline"})
+            log(f"[INFO] Job status updated to 'active' for job_id: {job_id}")
         except Exception as e:
             log(f"[WARNING] Failed to save initial status: {e}")
 
