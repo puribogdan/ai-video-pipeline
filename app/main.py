@@ -107,7 +107,16 @@ async def submit(
     with open(audio_path, "wb") as f:
         f.write(data)
         f.flush()
-        os.fsync(f.fileno())
+        os.fsync(f.fileno())  # Force write to disk
+
+    # Additional verification that file was written correctly
+    if not audio_path.exists():
+        raise HTTPException(status_code=500, detail=f"Failed to create audio file: {audio_path}")
+
+    actual_size = audio_path.stat().st_size
+    if actual_size != len(data):
+        audio_path.unlink()  # Remove corrupted file
+        raise HTTPException(status_code=500, detail=f"Audio file size mismatch: expected {len(data)} bytes, got {actual_size} bytes")
 
     # Optional portrait
     if portrait and portrait.filename:

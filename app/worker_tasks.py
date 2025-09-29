@@ -554,18 +554,48 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
 
         # Validate that the audio file exists before proceeding
         if not hint_audio or not hint_audio.exists():
+            log(f"[WARNING] Hint audio path does not exist: {hint_audio}")
+
             # Try to find any audio file in the job directory
             found_audio = _find_any_audio(job_dir)
             if found_audio:
                 log(f"[INFO] Using found audio file instead of missing hint: {found_audio}")
                 hint_audio = found_audio
             else:
-                # No audio file found - this is a critical error
-                available_files = [p.name for p in job_dir.iterdir()] if job_dir.exists() else []
-                raise RuntimeError(
-                    f"Audio file not found. Upload path: {upload_path}, "
-                    f"Job directory: {job_dir}, Available files: {available_files}"
-                )
+                # No audio file found - wait a bit and retry in case of race condition
+                log(f"[WARNING] No audio file found, waiting 5 seconds and retrying...")
+                time.sleep(5)
+
+                # Retry finding audio file
+                found_audio = _find_any_audio(job_dir)
+                if found_audio:
+                    log(f"[INFO] Found audio file after retry: {found_audio}")
+                    hint_audio = found_audio
+                else:
+                    # Final attempt - this is a critical error
+                    available_files = [p.name for p in job_dir.iterdir()] if job_dir.exists() else []
+                    log(f"[ERROR] Audio file still not found after retry. Upload path: {upload_path}, Job directory: {job_dir}, Available files: {available_files}")
+
+                    # Additional debugging info
+                    if job_dir.exists():
+                        log(f"[DEBUG] Job directory permissions: {oct(job_dir.stat().st_mode)}")
+                        for root, dirs, files in os.walk(job_dir):
+                            level = root.replace(str(job_dir), '').count(os.sep)
+                            indent = ' ' * 2 * level
+                            log(f"[DEBUG] {indent}{os.path.basename(root)}/")
+                            subindent = ' ' * 2 * (level + 1)
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                try:
+                                    file_stat = os.stat(file_path)
+                                    log(f"[DEBUG] {subindent}{file} (size: {file_stat.st_size}, mode: {oct(file_stat.st_mode)})")
+                                except Exception as e:
+                                    log(f"[DEBUG] {subindent}{file} (error: {e})")
+
+                    raise RuntimeError(
+                        f"Audio file not found. Upload path: {upload_path}, "
+                        f"Job directory: {job_dir}, Available files: {available_files}"
+                    )
 
         # Validate audio file is not empty
         audio_size = hint_audio.stat().st_size
