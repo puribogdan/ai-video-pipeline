@@ -44,26 +44,29 @@ def chat_json(model: str, messages: list, temperature: float | None = None):
     return provider.chat_json(**kwargs)
 
 SYSTEM_PROMPT = (
-    "You are a careful video editor.\n"
+    "You are a careful video editor. You must output ONLY valid JSON, no other text.\n\n"
     "Input: a list WORDS = [{index, start, end, word}] with times relative to 0.\n\n"
     "Task: split into contiguous SCENES using WORD INDICES ONLY.\n"
+    "CRITICAL: Each scene MUST be exactly 4-5 seconds long based on word timings.\n\n"
     "Hard constraints:\n"
     "- Do NOT invent, remove, or paraphrase words. Use exactly the provided words.\n"
     "- No overlaps, no gaps; scenes must cover ALL words in order (each word exactly once).\n"
-    "- Force scene durations to be between 4 and 5 seconds.\n"
+    "- FORCE each scene duration to be between 4.0 and 5.0 seconds by choosing appropriate word ranges.\n"
     "- The first scene must start at time 0.0.\n"
-    "- Cuts must occur at word boundaries (by index).\n\n"
-    "Output ONLY JSON:\n"
-    "{\"scenes\":[{"
-    "  \"start_word_index\": int,  \"end_word_index\": int,  # inclusive range in WORDS\n"
-    "  \"scene_description\": \"<text-to-image prompt reflecting a detailed description of the scene>\"\n"
-    "} ...]}\n"
+    "- Cuts must occur at word boundaries (by index).\n"
+    "- Calculate word ranges so that (end_time - start_time) is between 4.0 and 5.0 seconds.\n\n"
+    "Output ONLY JSON in this exact format:\n"
+    "{\"scenes\":[{\"start_word_index\":int,\"end_word_index\":int,\"scene_description\":\"text-to-image prompt\"}]}\n\n"
+    "CRITICAL TIMING RULES:\n"
+    "- Analyze the word timings first to find ranges that give 4-5 second durations\n"
+    "- Prioritize ranges closest to 4.5 seconds\n"
+    "- If no perfect 4-5s range exists, choose the range closest to 4-5s\n"
+    "- DO NOT exceed 5.0 seconds or go below 4.0 seconds\n\n"
     "Notes for scene_description:\n"
-    "- Use the entire story context, not only the words in this scene, to understand characters, setting, and continuity. Each scene must feel consistent with the others.\n"
-    "- Describe what is visually happening in this specific scene (characters, environment, actions, emotions, atmosphere) while ensuring it aligns with the story so far and what follows.\n"
-    "- Output a detailed scene description\n"
-    "- No new objects, characters, or events beyond what is implied in the story.\n"
+    "- Use the entire story context to understand characters, setting, and continuity.\n"
+    "- Describe what is visually happening in this specific scene.\n"
     "- Present tense, kid-friendly, concrete. Focus on what the image should show.\n"
+    "- No new objects, characters, or events beyond what is implied in the story.\n"
 )
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=12), stop=stop_after_attempt(3))
@@ -73,12 +76,14 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         "constraints": {"min_secs": MIN_S, "max_secs": MAX_S},
         "words": words_payload,
         "instruction": (
-            "Return only 'scenes' with {start_word_index, end_word_index, scene_description}. "
-            "Cover all WORDS exactly once, in order, with cuts at word indices. "
-            "Force each scene to be 4-5 seconds long. First scene must start at time 0.0."
+            "Return a JSON object with 'scenes' array. Each scene must have start_word_index, end_word_index, and scene_description. "
+            "CRITICAL: Analyze word timings and create scenes that are EXACTLY 4-5 seconds each. "
+            "Calculate word ranges so that (end_time - start_time) is between 4.0 and 5.0 seconds for every scene. "
+            "Cover all words exactly once, in order, with cuts at word indices. First scene starts at 0.0."
         ),
     }
 
+    response_data = None
     try:
         response_data = chat_json(
             model=MODEL_NAME,
@@ -99,7 +104,7 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     except json.JSONDecodeError as e:
         print(f"[ERROR] Failed to parse JSON response from LLM: {e}")
         try:
-            print(f"[ERROR] Raw response: {json.dumps(response_data)}")
+            print(f"[ERROR] Raw response: {json.dumps(response_data) if 'response_data' in locals() else 'No response data'}")
         except:
             print("[ERROR] Could not serialize response data")
         raise

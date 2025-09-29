@@ -106,10 +106,31 @@ class ClaudeProvider(LLMProvider):
 
         print(f"[DEBUG] Attempting to parse JSON: {content_text[:200]}...")
 
+        # Try to extract JSON if there's text before it
+        json_text = content_text.strip()
+
+        # Look for JSON object start
+        json_start = json_text.find('{')
+        if json_start == -1:
+            print(f"[ERROR] No JSON object found in response")
+            print(f"[ERROR] Raw content: {repr(content_text)}")
+            raise ValueError("No JSON object found in Claude response")
+
+        # Extract from first { to last }
+        json_end = json_text.rfind('}')
+        if json_end == -1:
+            print(f"[ERROR] No JSON object end found in response")
+            print(f"[ERROR] Raw content: {repr(content_text)}")
+            raise ValueError("No JSON object end found in Claude response")
+
+        json_text = json_text[json_start:json_end + 1]
+        print(f"[DEBUG] Extracted JSON: {json_text[:200]}...")
+
         try:
-            return json.loads(content_text)
+            return json.loads(json_text)
         except json.JSONDecodeError as json_error:
             print(f"[ERROR] Failed to parse JSON response from Claude: {json_error}")
+            print(f"[ERROR] Extracted JSON: {repr(json_text)}")
             print(f"[ERROR] Raw content: {repr(content_text)}")
             print(f"[ERROR] Full response object: {response}")
             raise ValueError(f"Claude API returned invalid JSON: {json_error}")
