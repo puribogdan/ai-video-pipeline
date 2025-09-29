@@ -577,6 +577,12 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             log(f"[DEBUG] Hint audio filename: {hint_audio.name}")
             log(f"[DEBUG] Hint audio extension: {hint_audio.suffix}")
 
+        # Detect hardcoded input_cut.mp3 issue
+        if upload_path and "input_cut.mp3" in upload_path:
+            log(f"[WARNING] DETECTED HARDCODED FILENAME: upload_path contains 'input_cut.mp3'")
+            log(f"[DEBUG] This suggests an external system is hardcoding the filename")
+            log(f"[DEBUG] The worker will now look for any audio file in the job directory instead")
+
         initial_listing = sorted([p.name for p in job_dir.iterdir()]) if job_dir.exists() else []
         log(f"[DEBUG] Job dir initial listing: {initial_listing}")
 
