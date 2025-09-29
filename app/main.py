@@ -104,6 +104,10 @@ async def submit(
     # Save audio with original (sanitized) name
     orig_audio_name = _safe_name(audio.filename or "audio_upload")
     audio_path = user_dir / orig_audio_name
+    print(f"[DEBUG] Saving audio file as: {audio_path}", flush=True)
+    print(f"[DEBUG] Original filename: {audio.filename}", flush=True)
+    print(f"[DEBUG] Sanitized filename: {orig_audio_name}", flush=True)
+
     with open(audio_path, "wb") as f:
         f.write(data)
         f.flush()
@@ -159,9 +163,20 @@ async def submit(
 
     print(f"[web] saved upload -> {audio_path} ({final_size} bytes)", flush=True)
     try:
-        print(f"[web] dir listing {user_dir}: {[p.name for p in user_dir.glob('*')]}", flush=True)
-    except Exception:
-        pass
+        dir_contents = [p.name for p in user_dir.glob('*')]
+        print(f"[web] dir listing {user_dir}: {dir_contents}", flush=True)
+        print(f"[web] audio file in directory: {audio_path.name in dir_contents}", flush=True)
+
+        # Additional verification - check if file is actually readable
+        try:
+            with open(audio_path, 'rb') as f:
+                chunk = f.read(1024)  # Read first 1KB
+                print(f"[web] audio file readable, first chunk size: {len(chunk)} bytes", flush=True)
+        except Exception as e:
+            print(f"[web] ERROR: Cannot read audio file: {e}", flush=True)
+            raise HTTPException(status_code=500, detail=f"Audio file not readable after save: {e}")
+    except Exception as e:
+        print(f"[web] ERROR: Cannot list directory: {e}", flush=True)
 
     # Enqueue with style forwarded to worker
     from app.worker_tasks import process_job
@@ -169,6 +184,10 @@ async def submit(
     print(f"[DEBUG] Audio file exists: {audio_path.exists()}", flush=True)
     if audio_path.exists():
         print(f"[DEBUG] Audio file size: {audio_path.stat().st_size} bytes", flush=True)
+        print(f"[DEBUG] Audio file path: {audio_path}", flush=True)
+        print(f"[DEBUG] Audio file absolute path: {audio_path.absolute()}", flush=True)
+
+    print(f"[DEBUG] Job directory contents before enqueue: {[p.name for p in user_dir.glob('*')]}", flush=True)
 
     rq_job = queue.enqueue(
         process_job,
@@ -179,6 +198,8 @@ async def submit(
         retry=Retry(max=3, interval=[15, 30, 60]),
         job_timeout=1800,
     )
+
+    print(f"[DEBUG] Job enqueued successfully with ID: {rq_job.id}", flush=True)
 
     return TEMPLATES.TemplateResponse("upload.html", {"request": request, "job_id": job_id})
 

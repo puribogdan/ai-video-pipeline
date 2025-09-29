@@ -570,7 +570,14 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
         hint_audio = Path(upload_path) if upload_path else None
         log(f"[DEBUG] Upload path provided: {upload_path}")
         log(f"[DEBUG] Hint audio path: {hint_audio}")
-        log(f"Job dir initial listing: {sorted([p.name for p in job_dir.iterdir()]) if job_dir.exists() else []}")
+        log(f"[DEBUG] Hint audio exists: {hint_audio.exists() if hint_audio else 'N/A'}")
+
+        initial_listing = sorted([p.name for p in job_dir.iterdir()]) if job_dir.exists() else []
+        log(f"[DEBUG] Job dir initial listing: {initial_listing}")
+
+        # Check if completion_status.json exists without audio files (potential race condition)
+        if "completion_status.json" in initial_listing and not any(f.endswith(('.mp3', '.wav', '.m4a', '.aac', '.ogg')) for f in initial_listing):
+            log(f"[WARNING] Found completion_status.json but no audio files - possible premature status save")
 
         # Validate that the audio file exists before proceeding
         if not hint_audio or not hint_audio.exists():
