@@ -18,6 +18,9 @@ from replicate.exceptions import ReplicateError
 # Only trimming now (no padding / Ken Burns)
 from moviepy.editor import VideoFileClip
 
+# LLM provider for scene enhancement
+from providers.factory import get_llm_provider
+
 ROOT = Path(__file__).parent
 SCRIPT_PATH = ROOT / "scripts" / "input_script.json"
 SCENES_DIR  = ROOT / "scenes"
@@ -126,6 +129,90 @@ def load_scenes() -> List[Dict[str, Any]]:
 
 def sec_len(s: Dict[str, Any]) -> float:
     return max(0.1, float(s["end_time"]) - float(s["start_time"]))
+
+def enhance_scene_descriptions_with_claude(scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Send all scene descriptions to Claude with the specified prompt and update them with enhanced versions.
+    """
+    if not scenes:
+        return scenes
+
+    # Prepare the scene descriptions for Claude
+    scene_descriptions = []
+    for i, scene in enumerate(scenes):
+        scene_descriptions.append({
+            "scene_index": i,
+            "original_description": scene.get("scene_description", ""),
+            "narration": scene.get("narration", "")
+        })
+
+    # Create the prompt with all scene descriptions - just the scenes, no duplicate instructions
+    scene_prompts = []
+    for i, scene in enumerate(scene_descriptions):
+        scene_prompts.append(f"Scene {i}: {scene['original_description']}")
+
+    # Join all scene prompts
+    full_prompt = "\n".join(scene_prompts)
+
+    prompt = f"""
+Rewrite the following scene descriptions into concise prompts for an AI image-to-video generator. Each rewritten prompt should:
+
+- Focus on one clear action or state per clip (no multiple events)
+- Keep characters' proportions and style stable
+- Ensure natural, believable contact with the environment (no floating, no glitches)
+- Add gentle, intentional motion only (like slight gestures, breeze, or smooth camera movement)
+- Remove dialogue or complex multi-step actions
+- Use clear, simple language suitable for 5–10 second video clips
+
+Scene descriptions to rewrite:
+{full_prompt}
+
+Return a JSON object with the rewritten prompts in this exact format:
+{{
+    "enhanced_scenes": [
+        {{
+            "scene_index": 0,
+            "rewritten_prompt": "concise rewritten prompt here"
+        }},
+        {{
+            "scene_index": 1,
+            "rewritten_prompt": "concise rewritten prompt here"
+        }}
+    ]
+}}
+"""
+
+    try:
+        provider = get_llm_provider()
+        response_data = provider.chat_json(
+            model="claude-opus-4-1-20250805",
+            messages=[
+                {"role": "system", "content": "You are a creative video scene enhancer. You must output ONLY valid JSON, no other text."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.7,
+        )
+
+        enhanced_scenes = response_data.get("enhanced_scenes", [])
+        if not enhanced_scenes:
+            print("[WARNING] No enhanced scenes returned from Claude, keeping original descriptions")
+            return scenes
+
+        # Update the scenes with rewritten prompts
+        for enhanced_scene in enhanced_scenes:
+            scene_index = enhanced_scene.get("scene_index")
+            if scene_index is not None and scene_index < len(scenes):
+                rewritten_prompt = enhanced_scene.get("rewritten_prompt", "")
+                if rewritten_prompt:
+                    scenes[scene_index]["scene_description"] = rewritten_prompt
+
+        print(f"[DEBUG] Successfully rewritten {len(enhanced_scenes)} scene descriptions into video prompts")
+        return scenes
+
+    except Exception as e:
+        print(f"[ERROR] Failed to enhance scene descriptions: {e}")
+        print("[WARNING] Keeping original scene descriptions")
+        return scenes
 
 # ---------- Output handling ----------
 def _download_bytes(url: str) -> bytes:
@@ -343,6 +430,11 @@ def main():
     scenes = load_scenes()
     if args.limit:
         scenes = scenes[:max(1, args.limit)]
+
+    # Enhance scene descriptions for video generation (after image generation)
+    print("[DEBUG] Enhancing scene descriptions for video generation...")
+    scenes = enhance_scene_descriptions_with_claude(scenes)
+    print(f"[DEBUG] Enhanced {len(scenes)} scene descriptions for video generation")
 
     # Note: Image prompts are no longer loaded - using scene descriptions directly
 
