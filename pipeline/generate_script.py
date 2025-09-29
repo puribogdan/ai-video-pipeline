@@ -50,7 +50,8 @@ SYSTEM_PROMPT = (
     "Hard constraints:\n"
     "- Do NOT invent, remove, or paraphrase words. Use exactly the provided words.\n"
     "- No overlaps, no gaps; scenes must cover ALL words in order (each word exactly once).\n"
-    "- Prefer scene durations between 4 and 5 seconds based on the words' original times.\n"
+    "- Force scene durations to be between 4 and 5 seconds.\n"
+    "- The first scene must start at time 0.0.\n"
     "- Cuts must occur at word boundaries (by index).\n\n"
     "Output ONLY JSON:\n"
     "{\"scenes\":[{"
@@ -74,7 +75,7 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         "instruction": (
             "Return only 'scenes' with {start_word_index, end_word_index, scene_description}. "
             "Cover all WORDS exactly once, in order, with cuts at word indices. "
-            "Prefer 4–5 second scenes."
+            "Force each scene to be 4-5 seconds long. First scene must start at time 0.0."
         ),
     }
 
@@ -142,15 +143,16 @@ def validate_and_build(
     if used != expect:
         raise ValueError("Coverage failure: scenes must cover all words exactly once, in order, no gaps/overlaps.")
 
-    if snap_integers:
-        t0 = scenes[0]["start_time"]
-        for i, s in enumerate(scenes):
-            dur = s["end_time"] - s["start_time"]
-            dur_i = int(round(dur))
-            if dur_i < 4: dur_i = 4
-            if dur_i > 5: dur_i = 5
-            s["start_time"] = float(int(round(s["start_time"] - t0)) + (0 if i == 0 else scenes[i-1]["end_time"]))
-            s["end_time"]   = float(s["start_time"] + dur_i)
+    # Force scenes to start from 0.0 and be exactly 4-5 seconds each
+    current_time = 0.0
+    for i, s in enumerate(scenes):
+        s["start_time"] = current_time
+        dur = s["end_time"] - s["start_time"]
+        dur_i = int(round(dur))
+        if dur_i < 4: dur_i = 4
+        if dur_i > 5: dur_i = 5
+        s["end_time"] = current_time + float(dur_i)
+        current_time = s["end_time"]
 
     return scenes
 
@@ -158,7 +160,7 @@ def validate_and_build(
 def main():
     ap = argparse.ArgumentParser(description="Auto-split scenes using FULL subtitles (word-level).")
     ap.add_argument("--snap-integers", action="store_true",
-                     help="OPTIONAL: snap scene durations to integer 5..10s (will move off exact word times).")
+                      help="OPTIONAL: snap scene durations to integer 4..5s (will move off exact word times).")
     args = ap.parse_args()
 
     if not settings.CLAUDE_API_KEY and not settings.OPENAI_API_KEY:
