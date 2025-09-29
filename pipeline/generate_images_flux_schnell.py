@@ -155,36 +155,12 @@ def _sha12(path: Path) -> str:
 # -------------------- Prompt builders (ONLY style line varies) --------------------
 def build_scene1_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
     if has_portrait:
-        return (
-            f"{desc}\n"
-            f"{style_line}\n"
-            "Use the uploaded image as the likeness for the protagonist only when the protagonist in the story is a human character. "
-            "If the protagonist is an animal, creature, or non-living object, do not use the uploaded image as that protagonist. "
-            "Instead, insert the likeness from the uploaded image as one of the human characters in the story (if there is at least one). "
-            "Always ensure the uploaded likeness appears only in a natural, human role."
-            "Match face structure, age, skin tone, and hair shape -ignore the background. "
-            "Adapt the person to match the existing visual style"
-            "Keep a friendly, appealing look suitable for a kids' story. "
-            "If any text appears in the image render it in English language"
-        )
+        return f"{desc}\n{style_line}"
     else:
-        return f"{desc}\n{style_line}\nIf any text appears in the image render it in English language"
+        return f"{desc}\n{style_line}"
 
 def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
-    if has_portrait:
-        return (
-            f"SCENE BRIEF: {desc}\n"
-            f"{style_line}\n"
-            
-            "If any text appears in the image render it in English language"
-        )
-    else:
-        return (
-            f"SCENE BRIEF: {desc}\n"
-            f"{style_line}\n"
-            "Maintain visual continuity with the reference image(s)."
-            "If any text appears in the image render it in English language"
-        )
+    return f"SCENE BRIEF: {desc}\n{style_line}"
 
 # -------------------- Model calls (with tiny retry) --------------------
 def _run_with_retry(fn, *args, retries: int = 2, delay: float = 1.5, **kwargs):

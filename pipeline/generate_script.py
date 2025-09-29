@@ -65,7 +65,7 @@ SYSTEM_PROMPT = (
     "Notes for scene_description:\n"
     "- Use the entire story context to understand characters, setting, and continuity.\n"
     "- Describe what is visually happening in this specific scene.\n"
-    "- Present tense, kid-friendly, concrete. Focus on what the image should show.\n"
+    "- Present tense, kid-friendly, concrete. Describe how the image should look like, no actions.\n"
     "- No new objects, characters, or events beyond what is implied in the story.\n"
 )
 
