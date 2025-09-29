@@ -1,4 +1,4 @@
-# generate_video_chunks_seedance.py — Scene Description→Video per scene (Seedance), over-generate by +1s and hard-trim
+# generate_video_chunks_seedance.py — Scene Description→Video per scene (Seedance), fixed 5-second videos (no trimming)
 from __future__ import annotations
 import os, sys, json, math, tempfile, uuid, io, time, logging
 from pathlib import Path
@@ -262,50 +262,51 @@ def try_seedance(model: str, image_path: Path, prompt: str, duration_s: int, res
                     raise
 
 # ---------- Trim to target (no padding, no zoom) ----------
-def trim_to_target(src_path: Path, dst_path: Path, target_sec: float, fps: int) -> float:
-    """
-    Open the raw clip and trim to exactly target_sec. If the raw clip is (unexpectedly) shorter,
-    we just write it through as-is (no padding, per your requirement).
-    Returns the raw duration.
-    """
-    clip = VideoFileClip(str(src_path), audio=False)
-    try:
-        cur = float(clip.duration or 0.0)
-        if cur >= target_sec:
-            fixed = clip.subclip(0, target_sec)
-            try:
-                fixed.write_videofile(
-                    str(dst_path),
-                    fps=int(clip.fps or fps),
-                    codec="libx264",
-                    audio=False,
-                    preset="medium",
-                    threads=2,
-                    verbose=False,
-                    logger=None,
-                    ffmpeg_params=["-movflags", "+faststart"],
-                )
-            finally:
-                try: fixed.close()
-                except Exception: pass
-        else:
-            # You said this will never happen; if it does, we just pass it through.
-            # (No Ken Burns, no retries.)
-            clip.write_videofile(
-                str(dst_path),
-                fps=int(clip.fps or fps),
-                codec="libx264",
-                audio=False,
-                preset="medium",
-                threads=2,
-                verbose=False,
-                logger=None,
-                ffmpeg_params=["-movflags", "+faststart"],
-            )
-        return cur
-    finally:
-        try: clip.close()
-        except Exception: pass
+# COMMENTED OUT: This function was creating 1+s chunks by over-generating and trimming
+# def trim_to_target(src_path: Path, dst_path: Path, target_sec: float, fps: int) -> float:
+#     """
+#     Open the raw clip and trim to exactly target_sec. If the raw clip is (unexpectedly) shorter,
+#     we just write it through as-is (no padding, per your requirement).
+#     Returns the raw duration.
+#     """
+#     clip = VideoFileClip(str(src_path), audio=False)
+#     try:
+#         cur = float(clip.duration or 0.0)
+#         if cur >= target_sec:
+#             fixed = clip.subclip(0, target_sec)
+#             try:
+#                 fixed.write_videofile(
+#                     str(dst_path),
+#                     fps=int(clip.fps or fps),
+#                     codec="libx264",
+#                     audio=False,
+#                     preset="medium",
+#                     threads=2,
+#                     verbose=False,
+#                     logger=None,
+#                     ffmpeg_params=["-movflags", "+faststart"],
+#                 )
+#             finally:
+#                 try: fixed.close()
+#                 except Exception: pass
+#         else:
+#             # You said this will never happen; if it does, we just pass it through.
+#             # (No Ken Burns, no retries.)
+#             clip.write_videofile(
+#                 str(dst_path),
+#                 fps=int(clip.fps or fps),
+#                 codec="libx264",
+#                 audio=False,
+#                 preset="medium",
+#                 threads=2,
+#                 verbose=False,
+#                 logger=None,
+#                 ffmpeg_params=["-movflags", "+faststart"],
+#             )
+#         return cur
+#     finally:
+#         try: clip.close()
+#         except Exception: pass
 
 # ---------- Effective target computation ----------
 def effective_target_for_scene(i: int, scenes: List[Dict[str, Any]]) -> float:
@@ -348,7 +349,7 @@ def main():
     # Dictionary to store video prompts for logging
     video_prompts_log = {}
 
-    print("  Strategy: Over-generate by +1s, then hard-trim to each scene's exact target (no padding).")
+    print("  Strategy: Generate 5-second videos for all scenes (no trimming to exact scene timing).")
     print(f"🎬 Seedance I2V | res={args.resolution} | fps={args.fps} | scenes={len(scenes)}")
 
     for i, s in enumerate(tqdm(scenes, desc="I2V"), start=1):
@@ -366,7 +367,7 @@ def main():
         # Exact target duration for the scene
         target = effective_target_for_scene(idx, scenes)
 
-        # Always generate 5 seconds for all scenes
+        # Always generate 5 seconds for all scenes (no over-generation, just consistent timing)
         request_int = 5
 
         scene_text = s.get("scene_description") or s.get("narration") or ""
@@ -418,31 +419,20 @@ def main():
 
             write_bytes(raw_path, data)
 
-            # Ensure all scenes are between 4-5 seconds
-            if target < 4.0:
-                # For very short scenes, extend to 4 seconds by trimming less
-                trim_target = 4.0
-            elif target <= 5.0:
-                # Keep scenes that are already 4-5 seconds
-                trim_target = target
-            else:
-                # Cap longer scenes at 5 seconds
-                trim_target = 5.0
-
-            raw_len = trim_to_target(raw_path, out_path, trim_target, args.fps)
-
-            safe_unlink(raw_path)
+            # No trimming needed - use the raw video directly
+            # Just move/rename the file from raw to final
+            safe_replace(raw_path, out_path)
 
             # Log successful video chunk creation
             timestamp = datetime.now().isoformat()
             logger.info(f"VIDEO_CHUNK_CREATED - Scene: {scene_id}, Timestamp: {timestamp}, "
                         f"Input: {img_path.name}, Output: {out_path.name}, "
-                        f"Target Duration: {target:.3f}s, Raw Duration: {raw_len:.3f}s, "
+                        f"Target Duration: {target:.3f}s, "
                         f"Requested Duration: {request_int}s, Model: {args.model}, "
                         f"Resolution: {args.resolution}, FPS: {args.fps}, Style: {style_key}, "
                         f"Scene Description: {scene_text[:100]}{'...' if len(scene_text) > 100 else ''}")
 
-            print(f"✅ {out_path.name} (target {target:.3f}s, raw {raw_len:.3f}s, requested {request_int}s)")
+            print(f"✅ {out_path.name} (target {target:.3f}s, requested {request_int}s)")
         except Exception as e:
             # Log failed video chunk creation
             timestamp = datetime.now().isoformat()
