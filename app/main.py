@@ -107,11 +107,16 @@ async def submit(
     print(f"[DEBUG] Saving audio file as: {audio_path}", flush=True)
     print(f"[DEBUG] Original filename: {audio.filename}", flush=True)
     print(f"[DEBUG] Sanitized filename: {orig_audio_name}", flush=True)
+    print(f"[DEBUG] Audio file size to save: {len(data)} bytes", flush=True)
+    print(f"[DEBUG] Job directory before save: {user_dir}", flush=True)
+    print(f"[DEBUG] Job directory exists: {user_dir.exists()}", flush=True)
 
     with open(audio_path, "wb") as f:
         f.write(data)
         f.flush()
         os.fsync(f.fileno())  # Force write to disk
+
+    print(f"[DEBUG] File write completed for: {audio_path}", flush=True)
 
     # Additional verification that file was written correctly
     if not audio_path.exists():
@@ -166,6 +171,8 @@ async def submit(
         dir_contents = [p.name for p in user_dir.glob('*')]
         print(f"[web] dir listing {user_dir}: {dir_contents}", flush=True)
         print(f"[web] audio file in directory: {audio_path.name in dir_contents}", flush=True)
+        print(f"[web] audio path exists: {audio_path.exists()}", flush=True)
+        print(f"[web] audio path size: {audio_path.stat().st_size if audio_path.exists() else 'N/A'}", flush=True)
 
         # Additional verification - check if file is actually readable
         try:
@@ -186,8 +193,12 @@ async def submit(
         print(f"[DEBUG] Audio file size: {audio_path.stat().st_size} bytes", flush=True)
         print(f"[DEBUG] Audio file path: {audio_path}", flush=True)
         print(f"[DEBUG] Audio file absolute path: {audio_path.absolute()}", flush=True)
+        print(f"[DEBUG] Audio file parent directory: {audio_path.parent}", flush=True)
+        print(f"[DEBUG] Audio file parent exists: {audio_path.parent.exists()}", flush=True)
 
     print(f"[DEBUG] Job directory contents before enqueue: {[p.name for p in user_dir.glob('*')]}", flush=True)
+    print(f"[DEBUG] Job directory path: {user_dir}", flush=True)
+    print(f"[DEBUG] Upload path string that will be passed to worker: {str(audio_path)}", flush=True)
 
     rq_job = queue.enqueue(
         process_job,
