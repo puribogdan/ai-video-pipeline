@@ -13,6 +13,7 @@ import requests
 from tqdm import tqdm
 from dotenv import load_dotenv
 import replicate
+from replicate.exceptions import ReplicateError
 
 # Only trimming now (no padding / Ken Burns)
 from moviepy.editor import VideoFileClip
@@ -128,7 +129,7 @@ def sec_len(s: Dict[str, Any]) -> float:
 
 # ---------- Output handling ----------
 def _download_bytes(url: str) -> bytes:
-    r = requests.get(url, stream=True, timeout=300)
+    r = requests.get(url, stream=True, timeout=600)  # Increased timeout for Render deployment
     r.raise_for_status()
     return r.content
 
@@ -227,15 +228,38 @@ def try_seedance(model: str, image_path: Path, prompt: str, duration_s: int, res
     # Clamp duration to API's valid range (5-12 seconds)
     clamped_duration = max(5, min(12, duration_s))
 
-    try:
-        return _run(clamped_duration)
-    except replicate.exceptions.ReplicateError as e:
-        # If API rejects the clamped duration, try with a fallback within the valid range
-        if clamped_duration > 5:
-            fallback_duration = clamped_duration - 1
-            print(f"⚠️  API rejected {clamped_duration}s duration, trying with fallback ({fallback_duration}s)")
-            return _run(fallback_duration)
-        raise
+    # Retry logic for network/API errors
+    max_retries = 3
+    base_delay = 2.0
+
+    for attempt in range(max_retries):
+        try:
+            return _run(clamped_duration)
+        except ReplicateError as e:
+            # If API rejects the clamped duration, try with a fallback within the valid range
+            if clamped_duration > 5 and "duration" in str(e).lower():
+                fallback_duration = clamped_duration - 1
+                print(f"⚠️  API rejected {clamped_duration}s duration, trying with fallback ({fallback_duration}s)")
+                try:
+                    return _run(fallback_duration)
+                except ReplicateError:
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        print(f"⚠️  Fallback duration also failed, retrying in {delay}s... (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(delay)
+                        continue
+                    raise
+            else:
+                # Network or other API errors - retry with exponential backoff
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    print(f"⚠️  API error (attempt {attempt + 1}/{max_retries}): {e}")
+                    print(f"⚠️  Retrying in {delay}s...")
+                    time.sleep(delay)
+                    continue
+                else:
+                    print(f"❌ All {max_retries} attempts failed")
+                    raise
 
 # ---------- Trim to target (no padding, no zoom) ----------
 def trim_to_target(src_path: Path, dst_path: Path, target_sec: float, fps: int) -> float:
