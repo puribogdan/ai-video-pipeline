@@ -572,12 +572,19 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
         log(f"[DEBUG] Hint audio path: {hint_audio}")
         log(f"[DEBUG] Hint audio exists: {hint_audio.exists() if hint_audio else 'N/A'}")
 
+        # Enhanced debugging for file naming issues
+        if hint_audio:
+            log(f"[DEBUG] Hint audio filename: {hint_audio.name}")
+            log(f"[DEBUG] Hint audio extension: {hint_audio.suffix}")
+
         initial_listing = sorted([p.name for p in job_dir.iterdir()]) if job_dir.exists() else []
         log(f"[DEBUG] Job dir initial listing: {initial_listing}")
 
         # Check if completion_status.json exists without audio files (potential race condition)
         if "completion_status.json" in initial_listing and not any(f.endswith(('.mp3', '.wav', '.m4a', '.aac', '.ogg')) for f in initial_listing):
             log(f"[WARNING] Found completion_status.json but no audio files - possible premature status save")
+            log(f"[DEBUG] completion_status.json size: {Path(job_dir / 'completion_status.json').stat().st_size if (job_dir / 'completion_status.json').exists() else 'N/A'}")
+            log(f"[DEBUG] completion_status.json modification time: {(job_dir / 'completion_status.json').stat().st_mtime if (job_dir / 'completion_status.json').exists() else 'N/A'}")
 
         # Validate that the audio file exists before proceeding
         if not hint_audio or not hint_audio.exists():
@@ -587,10 +594,10 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             log(f"[DEBUG] Upload path parent: {Path(upload_path).parent if upload_path else 'N/A'}")
             log(f"[DEBUG] Upload path parent exists: {Path(upload_path).parent.exists() if upload_path else 'N/A'}")
 
-            # Try to find any audio file in the job directory
+            # Try to find any audio file in the job directory (this is the main fix)
             found_audio = _find_any_audio(job_dir)
             if found_audio:
-                log(f"[INFO] Using found audio file instead of missing hint: {found_audio}")
+                log(f"[INFO] Found audio file in job directory: {found_audio}")
                 log(f"[DEBUG] Found audio file size: {found_audio.stat().st_size} bytes")
                 log(f"[DEBUG] Found audio file mime type: {mimetypes.guess_type(str(found_audio))}")
                 hint_audio = found_audio
@@ -611,14 +618,30 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
                             contents_before = [p.name for p in job_dir.iterdir()]
                             log(f"[DEBUG] Job directory contents before wait: {contents_before}")
 
-                            # Check if upload path exists and monitor its size
-                            if upload_path:
-                                upload_path_obj = Path(upload_path)
-                                if upload_path_obj.exists():
-                                    size_before = upload_path_obj.stat().st_size
-                                    log(f"[DEBUG] Upload path exists, size before wait: {size_before} bytes")
-                                else:
-                                    log(f"[DEBUG] Upload path still does not exist")
+                            # Enhanced debugging for file type detection
+                            for file_path in job_dir.iterdir():
+                                if file_path.is_file():
+                                    try:
+                                        size = file_path.stat().st_size
+                                        mtime = file_path.stat().st_mtime
+                                        mime_type, _ = mimetypes.guess_type(str(file_path))
+                                        log(f"[DEBUG] File analysis - {file_path.name}: size={size}, mtime={mtime}, mime={mime_type}")
+                                    except Exception as e:
+                                        log(f"[DEBUG] Error analyzing file {file_path.name}: {e}")
+
+                            # Check if upload path exists and monitor its size (but don't rely on it)
+                                if upload_path:
+                                    upload_path_obj = Path(upload_path)
+                                    log(f"[DEBUG] Upload path object: {upload_path_obj}")
+                                    log(f"[DEBUG] Upload path absolute: {upload_path_obj.absolute()}")
+                                    if upload_path_obj.exists():
+                                        size_before = upload_path_obj.stat().st_size
+                                        mtime_before = upload_path_obj.stat().st_mtime
+                                        log(f"[DEBUG] Upload path exists, size before wait: {size_before} bytes, mtime: {mtime_before}")
+                                        mime_type, _ = mimetypes.guess_type(str(upload_path_obj))
+                                        log(f"[DEBUG] Upload path mime type: {mime_type}")
+                                    else:
+                                        log(f"[DEBUG] Upload path does not exist - will rely on finding any audio file in job directory")
                         except Exception as e:
                             log(f"[DEBUG] Error checking directory contents: {e}")
 
@@ -656,7 +679,7 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
                     else:
                         log(f"[DEBUG] Still no audio file found after attempt {attempt + 1}")
 
-                        # On last attempt, check if upload path exists
+                        # On last attempt, check if upload path exists (but prefer any audio file found)
                         if attempt == max_retries - 1 and upload_path:
                             upload_path_obj = Path(upload_path)
                             if upload_path_obj.exists():
@@ -698,6 +721,7 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
                                     log(f"[DEBUG] {subindent}{file} (size: {file_stat.st_size}, mode: {oct(file_stat.st_mode)})")
                                 except Exception as e:
                                     log(f"[DEBUG] {subindent}{file} (error: {e})")
+
 
                     raise RuntimeError(
                         f"Audio file not found. Upload path: {upload_path}, "
