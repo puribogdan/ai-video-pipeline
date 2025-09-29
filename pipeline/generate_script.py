@@ -12,8 +12,8 @@ PROJECT_ROOT = Path(__file__).parent
 SUBS_PATH = PROJECT_ROOT / "subtitles" / "input_subtitles.json"
 OUT_PATH   = PROJECT_ROOT / "scripts" / "input_script.json"
 
-MIN_S = 5.0
-MAX_S = 10.0
+MIN_S = 4.0
+MAX_S = 5.0
 
 # ---------- IO ----------
 def load_words() -> List[Dict[str, Any]]:
@@ -50,7 +50,7 @@ SYSTEM_PROMPT = (
     "Hard constraints:\n"
     "- Do NOT invent, remove, or paraphrase words. Use exactly the provided words.\n"
     "- No overlaps, no gaps; scenes must cover ALL words in order (each word exactly once).\n"
-    "- Prefer scene durations between 5 and 10 seconds based on the words’ original times.\n"
+    "- Prefer scene durations between 4 and 5 seconds based on the words' original times.\n"
     "- Cuts must occur at word boundaries (by index).\n\n"
     "Output ONLY JSON:\n"
     "{\"scenes\":[{"
@@ -74,7 +74,7 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         "instruction": (
             "Return only 'scenes' with {start_word_index, end_word_index, scene_description}. "
             "Cover all WORDS exactly once, in order, with cuts at word indices. "
-            "Prefer 5–10 second scenes."
+            "Prefer 4–5 second scenes."
         ),
     }
 
@@ -147,8 +147,8 @@ def validate_and_build(
         for i, s in enumerate(scenes):
             dur = s["end_time"] - s["start_time"]
             dur_i = int(round(dur))
-            if dur_i < 5: dur_i = 5
-            if dur_i > 10: dur_i = 10
+            if dur_i < 4: dur_i = 4
+            if dur_i > 5: dur_i = 5
             s["start_time"] = float(int(round(s["start_time"] - t0)) + (0 if i == 0 else scenes[i-1]["end_time"]))
             s["end_time"]   = float(s["start_time"] + dur_i)
 
@@ -174,7 +174,7 @@ def main():
         for i, w in enumerate(words)
     ]
 
-    print(f"[DEBUG] Sending {len(words_payload)} word-level subtitles to {MODEL_NAME} to choose scene splits (5–10s preferred)…")
+    print(f"[DEBUG] Sending {len(words_payload)} word-level subtitles to {MODEL_NAME} to choose scene splits (4–5s preferred)…")
     try:
         plan = call_llm_api(words_payload)
         print(f"[DEBUG] LLM returned {len(plan)} scene plans")

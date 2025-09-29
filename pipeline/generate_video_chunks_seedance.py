@@ -342,16 +342,8 @@ def main():
         # Exact target duration for the scene
         target = effective_target_for_scene(idx, scenes)
 
-        # New duration logic: if scene <= 5 seconds, create 5 seconds video
-        # If scene > 5 seconds, create 10 seconds video
-        # For last scene, always use 10 seconds to avoid cutting too fast
-        if idx == len(scenes) - 1:
-            # Last scene: always request 10 seconds for natural pacing
-            request_int = 10
-        elif target <= 5.0:
-            request_int = 5
-        else:
-            request_int = 10
+        # Always generate 5 seconds for all scenes
+        request_int = 5
 
         scene_text = s.get("scene_description") or s.get("narration") or ""
 
@@ -402,14 +394,18 @@ def main():
 
             write_bytes(raw_path, data)
 
-            # Only trim for non-last scenes - keep last scene untrimmed
-            if idx == len(scenes) - 1:
-                # For the last scene, use raw video without trimming
-                import shutil
-                shutil.copy2(raw_path, out_path)
-                raw_len = VideoFileClip(str(raw_path), audio=False).duration or 0.0
+            # Ensure all scenes are between 4-5 seconds
+            if target < 4.0:
+                # For very short scenes, extend to 4 seconds by trimming less
+                trim_target = 4.0
+            elif target <= 5.0:
+                # Keep scenes that are already 4-5 seconds
+                trim_target = target
             else:
-                raw_len = trim_to_target(raw_path, out_path, target, args.fps)
+                # Cap longer scenes at 5 seconds
+                trim_target = 5.0
+
+            raw_len = trim_to_target(raw_path, out_path, trim_target, args.fps)
 
             safe_unlink(raw_path)
 
