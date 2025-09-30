@@ -528,6 +528,10 @@ def main():
     # Dictionary to store video prompts for logging
     video_prompts_log = {}
 
+    # Always ensure video_prompts_log exists, even if no scenes are processed
+    if not scenes:
+        print("[WARNING] No scenes to process")
+
     for i, s in enumerate(tqdm(scenes, desc="I2V"), start=1):
         idx = i - 1
         scene_id = f"{i:03d}"
@@ -536,6 +540,25 @@ def main():
         out_path = OUT_DIR / f"chunk_{scene_id}.mp4"
 
         if out_path.exists() and out_path.stat().st_size > 1024 and not args.force:
+            # Log skipped scenes with original descriptions
+            original_scene_text = s.get("original_scene_description") or s.get("scene_description") or s.get("narration") or ""
+            scene_text = s.get("scene_description") or s.get("narration") or ""
+            style_key = (os.getenv("STYLE_CHOICE", "kid_friendly_cartoon") or "kid_friendly_cartoon").lower().strip()
+            animation_style = VIDEO_STYLE_LIBRARY.get(style_key, VIDEO_STYLE_LIBRARY["kid_friendly_cartoon"])
+            target = effective_target_for_scene(idx, scenes)
+
+            video_prompts_log[scene_id] = {
+                "scene_description": original_scene_text,
+                "enhanced_scene_description": scene_text if scene_text != original_scene_text else "",
+                "video_prompt": f"Scene {scene_id} was skipped (already exists)",
+                "duration_seconds": target,
+                "model": args.model,
+                "resolution": args.resolution,
+                "fps": args.fps,
+                "style_key": style_key,
+                "animation_style": animation_style,
+                "status": "skipped"
+            }
             continue
         if not img_path.exists():
             raise FileNotFoundError(f"Missing start frame image: {img_path}")
@@ -630,10 +653,10 @@ def main():
     print(f"✅ All chunks are in: {OUT_DIR}")
 
     # Save video prompts log to JSON file (now includes both original and enhanced descriptions)
-if video_prompts_log:
-    VIDEO_PROMPTS_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
-    VIDEO_PROMPTS_JSON_PATH.write_text(json.dumps(video_prompts_log, indent=2), encoding="utf-8")
-    print(f"📝 Video prompts logged to: {VIDEO_PROMPTS_JSON_PATH} (with original scene descriptions)")
+    if 'video_prompts_log' in locals() and video_prompts_log:
+        VIDEO_PROMPTS_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+        VIDEO_PROMPTS_JSON_PATH.write_text(json.dumps(video_prompts_log, indent=2), encoding="utf-8")
+        print(f"📝 Video prompts logged to: {VIDEO_PROMPTS_JSON_PATH} (with original scene descriptions)")
 
 def test_enhancement():
     """Test function to verify scene enhancement works"""
