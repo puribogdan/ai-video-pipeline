@@ -513,16 +513,20 @@ def main():
 
     # Enhance scene descriptions for video generation (after image generation)
     print("[DEBUG] Enhancing scene descriptions for video generation...")
+    # Store original descriptions before enhancement for video_prompts.json
+    for i, scene in enumerate(scenes):
+        scene['original_scene_description'] = scene.get('scene_description', '')
+
     scenes = enhance_scene_descriptions_with_claude(scenes)
     print(f"[DEBUG] Enhanced {len(scenes)} scene descriptions for video generation")
 
     # Note: Image prompts are no longer loaded - using scene descriptions directly
 
-    # Dictionary to store video prompts for logging
-    video_prompts_log = {}
-
     print("  Strategy: Generate 5-second videos for all scenes (no trimming to exact scene timing).")
     print(f"🎬 Seedance I2V | res={args.resolution} | fps={args.fps} | scenes={len(scenes)}")
+
+    # Dictionary to store video prompts for logging
+    video_prompts_log = {}
 
     for i, s in enumerate(tqdm(scenes, desc="I2V"), start=1):
         idx = i - 1
@@ -570,9 +574,11 @@ def main():
                 "Respect accurate perspective and depth, keeping realistic distance, proportions, and scale between foreground and background objects."
             )
 
-        # Log the video prompt for this scene
+        # Log the video prompt for this scene (use original scene description)
+        original_scene_text = s.get("original_scene_description") or s.get("scene_description") or s.get("narration") or ""
         video_prompts_log[scene_id] = {
-            "scene_description": scene_text,
+            "scene_description": original_scene_text,
+            "enhanced_scene_description": scene_text if scene_text != original_scene_text else "",
             "video_prompt": prompt,
             "duration_seconds": target,
             "model": args.model,
@@ -623,11 +629,11 @@ def main():
 
     print(f"✅ All chunks are in: {OUT_DIR}")
 
-    # Save video prompts log to JSON file
-    if video_prompts_log:
-        VIDEO_PROMPTS_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
-        VIDEO_PROMPTS_JSON_PATH.write_text(json.dumps(video_prompts_log, indent=2), encoding="utf-8")
-        print(f"📝 Video prompts logged to: {VIDEO_PROMPTS_JSON_PATH}")
+    # Save video prompts log to JSON file (now includes both original and enhanced descriptions)
+if video_prompts_log:
+    VIDEO_PROMPTS_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+    VIDEO_PROMPTS_JSON_PATH.write_text(json.dumps(video_prompts_log, indent=2), encoding="utf-8")
+    print(f"📝 Video prompts logged to: {VIDEO_PROMPTS_JSON_PATH} (with original scene descriptions)")
 
 def test_enhancement():
     """Test function to verify scene enhancement works"""
