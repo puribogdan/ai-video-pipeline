@@ -2,8 +2,7 @@
 # Portrait-aware minimal pipeline with prompt logging.
 # - If PORTRAIT_PATH is set and exists:
 #     • Scene 1 = EDIT using [portrait]
-#     • Scene 2 = EDIT using [scene_001, portrait]
-#     • Scene 3+ = EDIT using [scene_001, previous, portrait]
+#     • Scene 2+ = EDIT using [scene_001, previous] (no portrait)
 # - Else (no portrait):
 #     • Scene 1 = T2I
 #     • Scene 2 = EDIT using [scene_001]
@@ -230,7 +229,7 @@ def main():
 
     print("🖼️  model=google/nano-banana")
     if portrait_path:
-        print("   strategy: scene_001 = EDIT [portrait], scene_002 = EDIT [scene_001, portrait], scene_003+ = EDIT [scene_001, previous, portrait]")
+        print("   strategy: scene_001 = EDIT [portrait], scene_002+ = EDIT [scene_001, previous] (no portrait)")
     else:
         print("   strategy: scene_001 = T2I, scene_002 = EDIT [scene_001], scene_003+ = EDIT [scene_001, previous]")
     print(f"   frames: {len(scenes)} (limit={'all' if args.limit is None else args.limit})")
@@ -254,20 +253,20 @@ def main():
 
         try:
             if portrait_path:
-                # All scenes are EDIT with portrait in refs
+                # Only scene 1 uses portrait, subsequent scenes use previous scene references only
                 if i == 1:
                     refs = [portrait_path]
                     prompt = build_scene1_prompt(desc=desc, style_line=style_line, has_portrait=True)
-                elif i == 2:
+                else:
                     if ref_png is None or not ref_png.exists():
                         raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
-                    refs = [ref_png, portrait_path]
-                    prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=True)
-                else:
-                    if ref_png is None or not ref_png.exists() or prev_png is None or not prev_png.exists():
-                        raise RuntimeError(f"Missing references for scene {sid}.")
-                    refs = [ref_png, prev_png, portrait_path]
-                    prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=True)
+                    if i == 2:
+                        refs = [ref_png]
+                    else:
+                        if prev_png is None or not prev_png.exists():
+                            raise RuntimeError(f"Missing references for scene {sid}.")
+                        refs = [ref_png, prev_png]
+                    prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=False)
 
                 out = run_nano_banana_edit(prompt, refs)
                 mode = "edit"
