@@ -64,8 +64,8 @@ SYSTEM_PROMPT = (
     "- DO NOT exceed 5.0 seconds or go below 4.0 seconds\n\n"
     "Notes for scene_description:\n"
     "- Use the entire story context to understand characters, setting, and continuity.\n"
-    "- Describe what is visually happening in this specific scene.\n"
-    "- Present tense, kid-friendly, concrete. Describe how the image should look like, no actions.\n"
+    "- Describe in detail how the image generated should look like, no actions or movements for the scene.\n"
+    "- Present tense, kid-friendly, concrete. "
     "- No new objects, characters, or events beyond what is implied in the story.\n"
 )
 

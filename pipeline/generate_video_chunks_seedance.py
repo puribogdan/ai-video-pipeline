@@ -6,8 +6,17 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 import PIL.Image
-if not hasattr(PIL.Image, "ANTIALIAS"):  # Pillow >=10
-    PIL.Image.ANTIALIAS = PIL.Image.Resampling.LANCZOS
+# Handle Pillow version compatibility for ANTIALIAS
+try:
+    # Try to access ANTIALIAS (older Pillow versions)
+    PIL.Image.ANTIALIAS
+except AttributeError:
+    try:
+        # Pillow >=10 compatibility
+        PIL.Image.ANTIALIAS = PIL.Image.Resampling.LANCZOS
+    except AttributeError:
+        # If Resampling doesn't exist either, create a fallback
+        PIL.Image.ANTIALIAS = 1  # Use a default integer value
 
 import requests
 from tqdm import tqdm
@@ -165,16 +174,22 @@ def enhance_scene_descriptions_with_claude(scenes: List[Dict[str, Any]]) -> List
     Send all scene descriptions to Claude with the specified prompt and update them with enhanced versions.
     """
     if not scenes:
+        print("[DEBUG] No scenes provided for enhancement")
         return scenes
+
+    print(f"[DEBUG] Starting enhancement for {len(scenes)} scenes")
 
     # Prepare the scene descriptions for Claude
     scene_descriptions = []
     for i, scene in enumerate(scenes):
+        original_desc = scene.get("scene_description", "")
+        narration = scene.get("narration", "")
         scene_descriptions.append({
             "scene_index": i,
-            "original_description": scene.get("scene_description", ""),
-            "narration": scene.get("narration", "")
+            "original_description": original_desc,
+            "narration": narration
         })
+        print(f"[DEBUG] Scene {i}: '{original_desc[:50]}{'...' if len(original_desc) > 50 else ''}' | Narration: '{narration[:50]}{'...' if len(narration) > 50 else ''}'")
 
     # Create the prompt with all scene descriptions - just the scenes, no duplicate instructions
     scene_prompts = []
@@ -183,6 +198,7 @@ def enhance_scene_descriptions_with_claude(scenes: List[Dict[str, Any]]) -> List
 
     # Join all scene prompts
     full_prompt = "\n".join(scene_prompts)
+    print(f"[DEBUG] Full prompt length: {len(full_prompt)} characters")
 
     prompt = f"""
 Rewrite the following scene descriptions into concise prompts for an AI image-to-video generator. Each rewritten prompt should:
@@ -213,7 +229,15 @@ Return a JSON object with the rewritten prompts in this exact format:
 """
 
     try:
+        print("[DEBUG] Getting LLM provider...")
         provider = get_llm_provider()
+        print(f"[DEBUG] Using provider: {type(provider).__name__}")
+
+        # Check if provider has the required method
+        if not hasattr(provider, 'chat_json'):
+            raise AttributeError(f"Provider {type(provider).__name__} doesn't have chat_json method")
+
+        print("[DEBUG] Calling provider.chat_json()...")
         response_data = provider.chat_json(
             model="claude-opus-4-1-20250805",
             messages=[
@@ -223,24 +247,50 @@ Return a JSON object with the rewritten prompts in this exact format:
             temperature=0.7,
         )
 
+        print(f"[DEBUG] Received response data: {type(response_data)}")
+        if response_data:
+            print(f"[DEBUG] Response keys: {list(response_data.keys())}")
+
         enhanced_scenes = response_data.get("enhanced_scenes", [])
+        print(f"[DEBUG] Enhanced scenes count: {len(enhanced_scenes)}")
+
         if not enhanced_scenes:
-            print("[WARNING] No enhanced scenes returned from Claude, keeping original descriptions")
+            print("[WARNING] No enhanced scenes returned from provider, keeping original descriptions")
+            print(f"[DEBUG] Response data was: {response_data}")
             return scenes
 
         # Update the scenes with rewritten prompts
+        updated_count = 0
         for enhanced_scene in enhanced_scenes:
             scene_index = enhanced_scene.get("scene_index")
-            if scene_index is not None and scene_index < len(scenes):
-                rewritten_prompt = enhanced_scene.get("rewritten_prompt", "")
-                if rewritten_prompt:
-                    scenes[scene_index]["scene_description"] = rewritten_prompt
+            rewritten_prompt = enhanced_scene.get("rewritten_prompt", "")
 
-        print(f"[DEBUG] Successfully rewritten {len(enhanced_scenes)} scene descriptions into video prompts")
+            print(f"[DEBUG] Processing enhanced scene - index: {scene_index}, prompt length: {len(rewritten_prompt)}")
+
+            if scene_index is not None and scene_index < len(scenes):
+                if rewritten_prompt:
+                    original_desc = scenes[scene_index].get("scene_description", "")
+                    scenes[scene_index]["scene_description"] = rewritten_prompt
+                    if original_desc != rewritten_prompt:
+                        updated_count += 1
+                        print(f"[DEBUG] Updated Scene {scene_index}:")
+                        print(f"  Original: '{original_desc[:100]}{'...' if len(original_desc) > 100 else ''}'")
+                        print(f"  Enhanced: '{rewritten_prompt[:100]}{'...' if len(rewritten_prompt) > 100 else ''}'")
+                else:
+                    print(f"[WARNING] Empty rewritten prompt for scene {scene_index}")
+            else:
+                print(f"[WARNING] Invalid scene index: {scene_index}")
+
+        print(f"[DEBUG] Successfully updated {updated_count}/{len(enhanced_scenes)} scene descriptions")
+        if updated_count == 0:
+            print("[WARNING] No scenes were actually updated - possible provider issue")
         return scenes
 
     except Exception as e:
         print(f"[ERROR] Failed to enhance scene descriptions: {e}")
+        print(f"[ERROR] Exception type: {type(e).__name__}")
+        import traceback
+        print(f"[ERROR] Full traceback: {traceback.format_exc()}")
         print("[WARNING] Keeping original scene descriptions")
         return scenes
 
@@ -506,7 +556,7 @@ def main():
                 f"{animation_style}\n"
                 
                 "Do not add or duplicate characters unless specified. "
-                "If any text appears in the image render it in English language"
+                "If any text appears in the image render it in English language "
                 "Respect accurate perspective and depth, keeping realistic distance, proportions, and scale between foreground and background objects."
                
             )
@@ -516,7 +566,7 @@ def main():
                 f"{animation_style}\n"
                 
                 "Do not add or duplicate characters unless specified. "                
-                "If any text appears in the image render it in English language"
+                "If any text appears in the image render it in English language "
                 "Respect accurate perspective and depth, keeping realistic distance, proportions, and scale between foreground and background objects."
             )
 
@@ -579,5 +629,63 @@ def main():
         VIDEO_PROMPTS_JSON_PATH.write_text(json.dumps(video_prompts_log, indent=2), encoding="utf-8")
         print(f"📝 Video prompts logged to: {VIDEO_PROMPTS_JSON_PATH}")
 
+def test_enhancement():
+    """Test function to verify scene enhancement works"""
+    print("=== Testing Scene Enhancement ===")
+
+    # Create test scenes (keep originals separate for comparison)
+    original_scenes = [
+        {
+            "start_time": 0.0,
+            "end_time": 5.0,
+            "scene_description": "A young boy is playing with a red ball in a green park on a sunny day",
+            "narration": "The boy plays with his ball"
+        },
+        {
+            "start_time": 5.0,
+            "end_time": 10.0,
+            "scene_description": "A little girl with pigtails is reading a colorful storybook under a large oak tree",
+            "narration": "She reads her favorite book"
+        }
+    ]
+
+    # Create a copy for enhancement (to avoid modifying originals)
+    test_scenes = [scene.copy() for scene in original_scenes]
+
+    print(f"Original scenes: {len(test_scenes)}")
+    for i, scene in enumerate(original_scenes):
+        print(f"  Scene {i}: {scene['scene_description']}")
+
+    try:
+        enhanced_scenes = enhance_scene_descriptions_with_claude(test_scenes)
+        print(f"\nEnhanced scenes: {len(enhanced_scenes)}")
+        for i, scene in enumerate(enhanced_scenes):
+            print(f"  Scene {i}: {scene['scene_description']}")
+
+        # Check if enhancement actually happened
+        changes = 0
+        for i, (original, enhanced) in enumerate(zip(original_scenes, enhanced_scenes)):
+            if original['scene_description'] != enhanced['scene_description']:
+                changes += 1
+                print(f"  [OK] Scene {i} was enhanced")
+                print(f"    Original: '{original['scene_description']}'")
+                print(f"    Enhanced: '{enhanced['scene_description']}'")
+            else:
+                print(f"  [FAIL] Scene {i} was not enhanced")
+
+        if changes > 0:
+            print(f"\n[SUCCESS] Enhancement test PASSED: {changes}/{len(test_scenes)} scenes were enhanced")
+        else:
+            print(f"\n[ERROR] Enhancement test FAILED: No scenes were enhanced")
+
+    except Exception as e:
+        print(f"[ERROR] Enhancement test FAILED with error: {e}")
+        import traceback
+        traceback.print_exc()
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--test-enhancement":
+        test_enhancement()
+    else:
+        main()
