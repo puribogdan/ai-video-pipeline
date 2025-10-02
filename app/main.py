@@ -44,7 +44,7 @@ app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 redis = Redis.from_url(REDIS_URL)
-queue = Queue(QUEUE_NAME, connection=redis, default_timeout=1800)
+queue = Queue(QUEUE_NAME, connection=redis, default_timeout=5400)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -233,7 +233,7 @@ async def submit(
         str(audio_path),  # Third argument to process_job
         style,            # Fourth argument to process_job
         retry=Retry(max=3, interval=[15, 30, 60]),
-        job_timeout=1800,
+        job_timeout=5400,
     )
 
     print(f"[DEBUG] Job enqueued successfully with ID: {rq_job.id}", flush=True)

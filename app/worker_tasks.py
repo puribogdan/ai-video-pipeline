@@ -150,7 +150,7 @@ def ensure_mp3(src_path: Path) -> Path:
         raise
 
 
-def run_with_live_output(cmd: list[str], cwd: Path, env: dict, timeout: int = 1800) -> None:
+def run_with_live_output(cmd: list[str], cwd: Path, env: dict, timeout: int = 5400) -> None:
     log(f"RUN (cwd={cwd}, timeout={timeout}s): {' '.join(cmd)}")
     proc = subprocess.Popen(
         cmd, cwd=str(cwd), env=env,
@@ -376,7 +376,7 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
         env["TRIM_EXTRA_ARGS"] = trim_extra
 
     cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name]
-    run_with_live_output(cmd, cwd=pipe_dir, env=env, timeout=1800)  # 30 minute timeout
+    run_with_live_output(cmd, cwd=pipe_dir, env=env, timeout=5400)  # 90 minute timeout
 
     final_video = pipe_dir / "final_video.mp4"
     if not final_video.exists():
