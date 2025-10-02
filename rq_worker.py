@@ -16,15 +16,19 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent))
 
 try:
-    from app.worker_tasks import log
+    from app.worker_tasks import log, process_job
     print(f"[DEBUG] Successfully imported worker_tasks", flush=True)
 except Exception as e:
     print(f"[ERROR] Failed to import worker_tasks: {e}", flush=True)
     import traceback
     print(f"[ERROR] Import traceback: {traceback.format_exc()}", flush=True)
-    # Define a simple log function if import fails
+    # Define simple functions if import fails
     def log(msg):
         print(f"[worker] {msg}", flush=True)
+
+    def process_job(*args, **kwargs):
+        print(f"[ERROR] process_job function not available: {e}", flush=True)
+        raise RuntimeError(f"process_job function not imported: {e}")
 
 # Redis configuration (same as main.py)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
