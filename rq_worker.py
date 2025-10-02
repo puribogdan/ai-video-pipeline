@@ -16,10 +16,11 @@ load_dotenv()
 sys.path.insert(0, str(Path(__file__).parent))
 
 try:
-    from app.worker_tasks import log, process_job
-    print(f"[DEBUG] Successfully imported worker_tasks", flush=True)
+    from app import process_job
+    from app.worker_tasks import log
+    print(f"[DEBUG] Successfully imported process_job and log functions", flush=True)
 except Exception as e:
-    print(f"[ERROR] Failed to import worker_tasks: {e}", flush=True)
+    print(f"[ERROR] Failed to import functions: {e}", flush=True)
     import traceback
     print(f"[ERROR] Import traceback: {traceback.format_exc()}", flush=True)
     # Define simple functions if import fails
