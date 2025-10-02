@@ -626,6 +626,12 @@ def main():
                 # Last scene - keep the full 10-second video (no trimming)
                 safe_replace(raw_path, out_path)
 
+            # Clean up the raw file after processing
+            try:
+                safe_unlink(raw_path)
+            except Exception:
+                pass
+
             # Log successful video chunk creation
             timestamp = datetime.now().isoformat()
             logger.info(f"VIDEO_CHUNK_CREATED - Scene: {scene_id}, Timestamp: {timestamp}, "
@@ -648,6 +654,7 @@ def main():
                         f"Scene Description: {scene_text[:100]}{'...' if len(scene_text) > 100 else ''}")
 
             print(f"⚠️  Scene {scene_id} failed: {e}")
+            # Clean up the raw file in case of error
             try:
                 safe_unlink(raw_path)
             except Exception:

@@ -14,8 +14,10 @@ FINAL_VIDEO = ROOT / "final_video.mp4"
 LIST_FILE = CHUNKS_DIR / "chunks.txt"
 
 def main():
-    # Collect chunk files
+    # Collect chunk files (only final output files, not raw files)
     chunks = sorted(CHUNKS_DIR.glob("chunk_*.mp4"))
+    # Filter out any raw files that might still exist (defensive programming)
+    chunks = [c for c in chunks if not c.name.endswith('.raw.mp4')]
     if not chunks:
         print(f"ERROR: No chunks found in {CHUNKS_DIR}", file=sys.stderr)
         sys.exit(1)
