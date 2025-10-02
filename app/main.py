@@ -227,10 +227,11 @@ async def submit(
     print(f"[DEBUG] ================================", flush=True)
 
     rq_job = queue.enqueue(
-        job_id,
-        email,
-        str(audio_path),
-        style,  # <-- pass style through
+        process_job,      # Function to execute
+        job_id,           # First argument to process_job
+        email,            # Second argument to process_job
+        str(audio_path),  # Third argument to process_job
+        style,            # Fourth argument to process_job
         retry=Retry(max=3, interval=[15, 30, 60]),
         job_timeout=1800,
     )
