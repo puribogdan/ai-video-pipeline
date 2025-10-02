@@ -12,8 +12,8 @@ PROJECT_ROOT = Path(__file__).parent
 SUBS_PATH = PROJECT_ROOT / "subtitles" / "input_subtitles.json"
 OUT_PATH   = PROJECT_ROOT / "scripts" / "input_script.json"
 
-MIN_S = 4.0
-MAX_S = 5.0
+MIN_S = 5.0
+MAX_S = 10.0
 
 # ---------- IO ----------
 def load_words() -> List[Dict[str, Any]]:
@@ -44,24 +44,24 @@ def chat_json(model: str, messages: list, temperature: float | None = None):
     return provider.chat_json(**kwargs)
 
 SYSTEM_PROMPT = (
-    "You are a careful video editor. You must output ONLY valid JSON, no other text.\n\n"
+    "You are a creative video editor with good storytelling instincts. You must output ONLY valid JSON, no other text.\n\n"
     "Input: a list WORDS = [{index, start, end, word}] with times relative to 0.\n\n"
     "Task: split into contiguous SCENES using WORD INDICES ONLY.\n"
-    "CRITICAL: Each scene MUST be exactly 4-5 seconds long based on word timings.\n\n"
-    "Hard constraints:\n"
+    "Each scene should be between 5-10 seconds long based on word timings.\n\n"
+    "Guidelines:\n"
     "- Do NOT invent, remove, or paraphrase words. Use exactly the provided words.\n"
     "- No overlaps, no gaps; scenes must cover ALL words in order (each word exactly once).\n"
-    "- FORCE each scene duration to be between 4.0 and 5.0 seconds by choosing appropriate word ranges.\n"
+    "- Choose scene durations between 5.0 and 10.0 seconds that make sense for the story flow.\n"
     "- The first scene must start at time 0.0.\n"
     "- Cuts must occur at word boundaries (by index).\n"
-    "- Calculate word ranges so that (end_time - start_time) is between 4.0 and 5.0 seconds.\n\n"
+    "- Consider natural story breaks, pauses, and narrative rhythm when choosing scene lengths.\n\n"
     "Output ONLY JSON in this exact format:\n"
     "{\"scenes\":[{\"start_word_index\":int,\"end_word_index\":int,\"scene_description\":\"text-to-image prompt\"}]}\n\n"
-    "CRITICAL TIMING RULES:\n"
-    "- Analyze the word timings first to find ranges that give 4-5 second durations\n"
-    "- Prioritize ranges closest to 4.5 seconds\n"
-    "- If no perfect 4-5s range exists, choose the range closest to 4-5s\n"
-    "- DO NOT exceed 5.0 seconds or go below 4.0 seconds\n\n"
+    "Scene Duration Strategy:\n"
+    "- Analyze the word timings and story content to find natural scene breaks\n"
+    "- Choose durations that feel right for each scene - some moments need more time, others less\n"
+    "- Consider: dramatic pauses, important descriptions, character emotions, scene changes\n"
+    "- Aim for 5-10 seconds per scene, but prioritize what serves the story best\n\n"
     "Notes for scene_description:\n"
     "- Use the entire story context to understand characters, setting, and continuity.\n"
     "- Describe in detail how the image generated should look like, no actions or movements for the scene.\n"
@@ -77,8 +77,9 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         "words": words_payload,
         "instruction": (
             "Return a JSON object with 'scenes' array. Each scene must have start_word_index, end_word_index, and scene_description. "
-            "CRITICAL: Analyze word timings and create scenes that are EXACTLY 4-5 seconds each. "
-            "Calculate word ranges so that (end_time - start_time) is between 4.0 and 5.0 seconds for every scene. "
+            "Analyze word timings and create scenes that are between 5-10 seconds each based on what fits the story best. "
+            "Calculate word ranges so that (end_time - start_time) is between 5.0 and 10.0 seconds for every scene. "
+            "Consider natural story breaks and narrative flow when choosing scene lengths. "
             "Cover all words exactly once, in order, with cuts at word indices. First scene starts at 0.0."
         ),
     }
@@ -148,14 +149,15 @@ def validate_and_build(
     if used != expect:
         raise ValueError("Coverage failure: scenes must cover all words exactly once, in order, no gaps/overlaps.")
 
-    # Force scenes to start from 0.0 and be exactly 4-5 seconds each
+    # Ensure scenes start from 0.0 and respect natural durations within 5-10 second range
     current_time = 0.0
     for i, s in enumerate(scenes):
         s["start_time"] = current_time
         dur = s["end_time"] - s["start_time"]
         dur_i = int(round(dur))
-        if dur_i < 4: dur_i = 4
-        if dur_i > 5: dur_i = 5
+        # Allow natural scene durations between 5-10 seconds
+        if dur_i < 5: dur_i = 5
+        if dur_i > 10: dur_i = 10
         s["end_time"] = current_time + float(dur_i)
         current_time = s["end_time"]
 
@@ -181,7 +183,7 @@ def main():
         for i, w in enumerate(words)
     ]
 
-    print(f"[DEBUG] Sending {len(words_payload)} word-level subtitles to {MODEL_NAME} to choose scene splits (4–5s preferred)…")
+    print(f"[DEBUG] Sending {len(words_payload)} word-level subtitles to {MODEL_NAME} to choose scene splits (5–10s preferred)…")
     try:
         plan = call_llm_api(words_payload)
         print(f"[DEBUG] LLM returned {len(plan)} scene plans")
