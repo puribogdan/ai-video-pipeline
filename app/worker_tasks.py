@@ -567,11 +567,33 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
     """Process a video job with comprehensive error handling and retry logic"""
     job_dir = None
     try:
+        log(f"[DEBUG] ===== WORKER JOB DEBUGGING =====")
         log(f"[DEBUG] process_job called with job_id={job_id}, email={email}, upload_path={upload_path}, style={style}")
         log(f"Starting job processing: {job_id} (email: {email}, style: {style})")
         log(f"[DEBUG] Upload path type: {type(upload_path)}")
         log(f"[DEBUG] Upload path string: {str(upload_path)}")
+        log(f"[DEBUG] Upload path length: {len(upload_path)}")
         log(f"[INFO] Worker is now processing job {job_id} - this confirms the job was dequeued successfully")
+
+        # Enhanced debugging for upload path issues
+        if upload_path:
+            upload_path_obj = Path(upload_path)
+            log(f"[DEBUG] Upload path as Path object: {upload_path_obj}")
+            log(f"[DEBUG] Upload path exists: {upload_path_obj.exists()}")
+            log(f"[DEBUG] Upload path is absolute: {upload_path_obj.is_absolute()}")
+            log(f"[DEBUG] Upload path parent: {upload_path_obj.parent}")
+            log(f"[DEBUG] Upload path parent exists: {upload_path_obj.parent.exists() if upload_path_obj.parent else 'N/A'}")
+            log(f"[DEBUG] Upload path name: {upload_path_obj.name}")
+            log(f"[DEBUG] Upload path suffix: {upload_path_obj.suffix}")
+
+            # Check if this is the hardcoded filename issue
+            if 'input_cut.mp3' in upload_path:
+                log(f"[WARNING] CONFIRMED HARDCODED FILENAME ISSUE: upload_path contains 'input_cut.mp3'")
+                log(f"[DEBUG] This indicates the client or middleware is sending a hardcoded filename")
+            else:
+                log(f"[DEBUG] Upload path does not contain hardcoded 'input_cut.mp3'")
+
+        log(f"[DEBUG] ================================")
 
         # Update status: active (job started)
         try:
@@ -611,21 +633,19 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
         hint_audio = Path(upload_path) if upload_path else None
         log(f"[DEBUG] Upload path provided: {upload_path}")
         log(f"[DEBUG] Hint audio path: {hint_audio}")
-        log(f"[DEBUG] Hint audio exists: {hint_audio.exists() if hint_audio else 'N/A'}")
-        log(f"[DEBUG] Hint audio path absolute: {hint_audio.absolute() if hint_audio else 'N/A'}")
-        log(f"[DEBUG] Hint audio path parent: {hint_audio.parent if hint_audio else 'N/A'}")
-        log(f"[DEBUG] Hint audio path parent exists: {hint_audio.parent.exists() if hint_audio else 'N/A'}")
 
         # Enhanced debugging for file naming issues
         if hint_audio:
             log(f"[DEBUG] Hint audio filename: {hint_audio.name}")
             log(f"[DEBUG] Hint audio extension: {hint_audio.suffix}")
+            log(f"[DEBUG] Hint audio exists: {hint_audio.exists()}")
+            log(f"[DEBUG] Hint audio path absolute: {hint_audio.absolute()}")
+            log(f"[DEBUG] Hint audio path parent: {hint_audio.parent}")
+            log(f"[DEBUG] Hint audio path parent exists: {hint_audio.parent.exists()}")
 
-        # Detect hardcoded input_cut.mp3 issue
+        # Check for hardcoded filename (info only, since we're making system flexible)
         if upload_path and "input_cut.mp3" in upload_path:
-            log(f"[WARNING] DETECTED HARDCODED FILENAME: upload_path contains 'input_cut.mp3'")
-            log(f"[DEBUG] This suggests an external system is hardcoding the filename")
-            log(f"[DEBUG] The worker will now look for any audio file in the job directory instead")
+            log(f"[INFO] Upload path contains hardcoded filename 'input_cut.mp3' - system will find any audio file")
 
         initial_listing = sorted([p.name for p in job_dir.iterdir()]) if job_dir.exists() else []
         log(f"[DEBUG] Job dir initial listing: {initial_listing}")
@@ -636,21 +656,33 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             log(f"[DEBUG] completion_status.json size: {Path(job_dir / 'completion_status.json').stat().st_size if (job_dir / 'completion_status.json').exists() else 'N/A'}")
             log(f"[DEBUG] completion_status.json modification time: {(job_dir / 'completion_status.json').stat().st_mtime if (job_dir / 'completion_status.json').exists() else 'N/A'}")
 
-        # Validate that the audio file exists before proceeding
-        if not hint_audio or not hint_audio.exists():
-            log(f"[WARNING] Hint audio path does not exist: {hint_audio}")
+        # Always look for any audio file in the job directory first (more robust approach)
+        # This makes the system flexible and accepts any audio filename, not just specific ones
+        log(f"[INFO] System now prioritizes finding any audio file in job directory for maximum compatibility")
+        log(f"[DEBUG] Looking for any audio file in job directory...")
+        found_audio = _find_any_audio(job_dir)
+
+        if found_audio:
+            log(f"[INFO] Found audio file in job directory: {found_audio.name}")
+            log(f"[DEBUG] Found audio file size: {found_audio.stat().st_size} bytes")
+            log(f"[DEBUG] Found audio file mime type: {mimetypes.guess_type(str(found_audio))}")
+            log(f"[DEBUG] Found audio file path: {found_audio.absolute()}")
+            hint_audio = found_audio
+        elif hint_audio and hint_audio.exists():
+            log(f"[INFO] Using provided hint audio path: {hint_audio}")
+            log(f"[DEBUG] Hint audio size: {hint_audio.stat().st_size} bytes")
+            log(f"[DEBUG] Hint audio mime type: {mimetypes.guess_type(str(hint_audio))}")
+        else:
+            log(f"[WARNING] No audio file found via directory scan or hint path")
             log(f"[DEBUG] Upload path details: {upload_path}")
             log(f"[DEBUG] Upload path exists: {Path(upload_path).exists() if upload_path else 'N/A'}")
             log(f"[DEBUG] Upload path parent: {Path(upload_path).parent if upload_path else 'N/A'}")
             log(f"[DEBUG] Upload path parent exists: {Path(upload_path).parent.exists() if upload_path else 'N/A'}")
 
-            # Try to find any audio file in the job directory (this is the main fix)
+            # Final attempt: try to find any audio file again (in case of timing issues)
             found_audio = _find_any_audio(job_dir)
             if found_audio:
-                log(f"[INFO] Found audio file in job directory: {found_audio}")
-                log(f"[DEBUG] Found audio file size: {found_audio.stat().st_size} bytes")
-                log(f"[DEBUG] Found audio file mime type: {mimetypes.guess_type(str(found_audio))}")
-                log(f"[DEBUG] Found audio file path: {found_audio.absolute()}")
+                log(f"[INFO] Found audio file on second attempt: {found_audio}")
                 hint_audio = found_audio
             else:
                 # No audio file found - implement robust retry logic for race condition
@@ -798,10 +830,19 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
                                     log(f"[DEBUG] Error listing upload path parent: {e}")
 
 
-                    raise RuntimeError(
-                        f"Audio file not found. Upload path: {upload_path}, "
-                        f"Job directory: {job_dir}, Available files: {available_files}"
-                    )
+                    # More flexible error message since system now accepts any audio file
+                    audio_files = [f for f in available_files if f.endswith(('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma'))]
+                    if audio_files:
+                        log(f"[INFO] Audio files found in directory: {audio_files} - possible file access issue")
+                        raise RuntimeError(
+                            f"Audio file not accessible. Upload path: {upload_path}, "
+                            f"Job directory: {job_dir}, Available audio files: {audio_files}"
+                        )
+                    else:
+                        raise RuntimeError(
+                            f"No audio file found. Upload path: {upload_path}, "
+                            f"Job directory: {job_dir}, Available files: {available_files}"
+                        )
 
         # Validate audio file is not empty
         if hint_audio is None:

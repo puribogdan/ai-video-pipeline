@@ -17,6 +17,9 @@ from dotenv import load_dotenv
 from redis import Redis
 from rq import Queue, Retry
 
+# Import here to avoid circular imports
+from .worker_tasks import process_job
+
 load_dotenv()
 
 APP_ROOT = Path(__file__).resolve().parents[1]
@@ -185,23 +188,45 @@ async def submit(
     except Exception as e:
         print(f"[web] ERROR: Cannot list directory: {e}", flush=True)
 
-    # Enqueue with style forwarded to worker
-    from app.worker_tasks import process_job
-    print(f"[DEBUG] Enqueuing job {job_id} with audio_path={audio_path}, style={style}", flush=True)
+    # Enhanced debugging for audio file issues
+    print(f"[DEBUG] ===== AUDIO FILE DEBUGGING =====", flush=True)
+    print(f"[DEBUG] Original uploaded filename: {audio.filename}", flush=True)
+    print(f"[DEBUG] Sanitized filename: {orig_audio_name}", flush=True)
+    print(f"[DEBUG] Final audio path: {audio_path}", flush=True)
     print(f"[DEBUG] Audio file exists: {audio_path.exists()}", flush=True)
+
     if audio_path.exists():
-        print(f"[DEBUG] Audio file size: {audio_path.stat().st_size} bytes", flush=True)
+        audio_size = audio_path.stat().st_size
+        print(f"[DEBUG] Audio file size: {audio_size} bytes", flush=True)
         print(f"[DEBUG] Audio file path: {audio_path}", flush=True)
         print(f"[DEBUG] Audio file absolute path: {audio_path.absolute()}", flush=True)
         print(f"[DEBUG] Audio file parent directory: {audio_path.parent}", flush=True)
         print(f"[DEBUG] Audio file parent exists: {audio_path.parent.exists()}", flush=True)
 
+        # Check if file is readable
+        try:
+            with open(audio_path, 'rb') as f:
+                header = f.read(64)  # Read first 64 bytes
+                print(f"[DEBUG] Audio file header (first 64 bytes): {header[:32]}...", flush=True)
+                print(f"[DEBUG] Audio file is readable: True", flush=True)
+        except Exception as e:
+            print(f"[ERROR] Audio file not readable: {e}", flush=True)
+    else:
+        print(f"[ERROR] Audio file does not exist at path: {audio_path}", flush=True)
+
     print(f"[DEBUG] Job directory contents before enqueue: {[p.name for p in user_dir.glob('*')]}", flush=True)
     print(f"[DEBUG] Job directory path: {user_dir}", flush=True)
     print(f"[DEBUG] Upload path string that will be passed to worker: {str(audio_path)}", flush=True)
 
+    # Check for hardcoded filename issue
+    if 'input_cut.mp3' in str(audio_path):
+        print(f"[WARNING] DETECTED HARDCODED FILENAME in upload path: {audio_path}", flush=True)
+    else:
+        print(f"[DEBUG] Upload path does not contain hardcoded filename", flush=True)
+
+    print(f"[DEBUG] ================================", flush=True)
+
     rq_job = queue.enqueue(
-        process_job,
         job_id,
         email,
         str(audio_path),
