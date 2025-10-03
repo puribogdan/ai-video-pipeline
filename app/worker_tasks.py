@@ -375,7 +375,7 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
     if trim_extra:
         env["TRIM_EXTRA_ARGS"] = trim_extra
 
-    cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name]
+    cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name, "--style", style]
     run_with_live_output(cmd, cwd=pipe_dir, env=env, timeout=5400)  # 90 minute timeout
 
     final_video = pipe_dir / "final_video.mp4"
@@ -559,6 +559,94 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
             err_message = e.response['Error']['Message']
             err_msg += f" | Server: {err_code} - {err_message}"
         log(f"B2 upload failed: {type(e).__name__}: {err_msg}")
+        log(f"Full traceback:\n{traceback.format_exc()}")
+        return None
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry=retry_if_exception_type((ClientError, Exception)),
+    reraise=True
+)
+def upload_images_to_b2(job_id: str, images_dir: Path) -> Optional[Dict[str, str]]:
+    """Upload generated images to Backblaze B2 and return a dictionary of image URLs, or None on failure."""
+    bucket_name = os.getenv("B2_BUCKET_NAME")
+    key_id = os.getenv("B2_KEY_ID")
+    app_key = os.getenv("B2_APPLICATION_KEY")
+    if bucket_name is None or key_id is None or app_key is None:
+        log("B2 env vars not set; skipping image upload.")
+        return None
+
+    region = os.getenv("B2_REGION", "eu-central-003")
+    endpoint = f'https://s3.{region}.backblazeb2.com'
+    log(f"[DEBUG] Using endpoint for images: {endpoint}, region: {region}")
+
+    try:
+        s3 = boto3.client(
+            's3',
+            aws_access_key_id=key_id,
+            aws_secret_access_key=app_key,
+            endpoint_url=endpoint,
+            region_name=region
+        )
+        log("Using S3-compatible boto3 client for Backblaze B2 image upload.")
+
+        image_urls = {}
+
+        # Upload all PNG images from the images directory
+        if images_dir.exists() and images_dir.is_dir():
+            image_extensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp']
+            images_uploaded = 0
+
+            for image_file in sorted(images_dir.iterdir()):
+                if image_file.is_file() and image_file.suffix.lower() in [ext.lower() for ext in image_extensions]:
+                    try:
+                        # Determine content type based on file extension
+                        _, ext = os.path.splitext(str(image_file))
+                        content_type = 'image/png'  # default
+                        if ext.lower() == '.jpg' or ext.lower() == '.jpeg':
+                            content_type = 'image/jpeg'
+                        elif ext.lower() == '.webp':
+                            content_type = 'image/webp'
+                        elif ext.lower() == '.bmp':
+                            content_type = 'image/bmp'
+
+                        # Create B2 key for the image
+                        image_key = f"exports/{job_id}/images/{image_file.name}"
+
+                        # Upload image to B2
+                        s3.upload_file(
+                            Filename=str(image_file),
+                            Bucket=bucket_name,
+                            Key=image_key,
+                            ExtraArgs={'ContentType': content_type}
+                        )
+
+                        # Create public URL for the image
+                        image_url = f"https://{bucket_name}.s3.{region}.backblazeb2.com/{image_key}"
+                        image_urls[image_file.name] = image_url
+                        images_uploaded += 1
+                        log(f"Uploaded image to B2: {image_key}")
+
+                    except Exception as e:
+                        log(f"[WARNING] Failed to upload image {image_file.name}: {e}")
+                        continue
+
+            log(f"Successfully uploaded {images_uploaded} images to B2")
+            return image_urls if image_urls else None
+        else:
+            log(f"Images directory does not exist or is not a directory: {images_dir}")
+            return None
+
+    except Exception as e:
+        import traceback
+        err_msg = str(e)
+        if isinstance(e, ClientError):
+            err_code = e.response['Error']['Code']
+            err_message = e.response['Error']['Message']
+            err_msg += f" | Server: {err_code} - {err_message}"
+        log(f"B2 image upload failed: {type(e).__name__}: {err_msg}")
         log(f"Full traceback:\n{traceback.format_exc()}")
         return None
 

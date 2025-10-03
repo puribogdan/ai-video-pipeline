@@ -213,6 +213,8 @@ def main():
         cmd_images = "python generate_images_flux_schnell.py"
         if args.limit_scenes is not None:
             cmd_images += f" --limit {int(args.limit_scenes)}"
+        if job_id:
+            cmd_images += f" --job-id {job_id}"
         run(cmd_images, cwd=ROOT, extra_env=child_env)
     else:
         log("Skipping image generation.")

@@ -21,6 +21,14 @@ from dotenv import load_dotenv
 from PIL import Image
 import replicate
 
+# Import B2 upload function
+try:
+    from app.worker_tasks import upload_images_to_b2, log as worker_log
+except ImportError:
+    # Fallback if not available
+    upload_images_to_b2 = None
+    def worker_log(msg): print(f"[worker] {msg}", flush=True)
+
 # -------------------- Model --------------------
 NANO_BANANA_MODEL = "google/nano-banana"
 
@@ -29,6 +37,8 @@ ROOT         = Path(__file__).parent
 SCRIPT_PATH  = ROOT / "scripts" / "input_script.json"
 SCENES_DIR   = ROOT / "scenes"
 SCENES_DIR.mkdir(parents=True, exist_ok=True)
+IMAGES_DIR   = ROOT / "images"
+IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 MANIFEST     = SCENES_DIR / "manifest.json"
 PROMPT_JSON  = SCENES_DIR / "prompt.json"
 
@@ -143,6 +153,18 @@ def save_png_no_resize(path: Path, img_bytes: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     im.save(path, format="PNG")
 
+def save_image_with_b2_backup(scene_path: Path, img_bytes: bytes, job_id: Optional[str] = None) -> None:
+    """Save image to both scenes directory and images directory, and upload to B2 if job_id provided."""
+    # Save to scenes directory (original location)
+    save_png_no_resize(scene_path, img_bytes)
+
+    # Also save to images directory for B2 upload
+    if job_id:
+        image_filename = scene_path.name
+        image_path = IMAGES_DIR / image_filename
+        save_png_no_resize(image_path, img_bytes)
+        worker_log(f"Saved image to images directory: {image_path}")
+
 def _sha12(path: Path) -> str:
     import hashlib
     h = hashlib.sha1()
@@ -197,6 +219,7 @@ def run_nano_banana_edit(prompt: str, refs: List[Path]):
 def main():
     parser = argparse.ArgumentParser(description="Generate scene images with google/nano-banana (portrait-aware, style-selectable).")
     parser.add_argument("--limit", type=int, default=None, help="Number of scenes to generate (default: all).")
+    parser.add_argument("--job-id", type=str, default=None, help="Job ID for B2 upload (optional).")
     args = parser.parse_args()
 
     load_dotenv()
@@ -226,6 +249,10 @@ def main():
     scenes = load_scenes()
     if args.limit is not None:
         scenes = scenes[:max(1, args.limit)]
+
+    job_id = args.job_id or os.getenv("JOB_ID")
+    if job_id:
+        print(f"📁 Job ID: {job_id}")
 
     print("🖼️  model=google/nano-banana")
     if portrait_path:
@@ -321,7 +348,7 @@ def main():
                 print(f"DEBUG output type: {type(out)}; sample: {str(out)[:200]}")
                 raise RuntimeError(f"No usable image bytes in model output (scene {sid}).")
 
-            save_png_no_resize(out_path, data)
+            save_image_with_b2_backup(out_path, data, job_id)
 
             if i == 1 and ref_png is None:
                 ref_png = out_path
@@ -343,8 +370,27 @@ def main():
 
     MANIFEST.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     PROMPT_JSON.write_text(json.dumps(prompt_log, indent=2), encoding="utf-8")
+
+    # Upload images to Backblaze B2 if job_id is provided and upload function is available
+    if job_id and upload_images_to_b2:
+        try:
+            worker_log(f"Uploading images to Backblaze B2 for job {job_id}...")
+            image_urls = upload_images_to_b2(job_id, IMAGES_DIR)
+            if image_urls:
+                print(f"✅ Images uploaded to B2: {len(image_urls)} files")
+                # Save image URLs to manifest for reference
+                manifest["b2_image_urls"] = image_urls
+                MANIFEST.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+            else:
+                print("⚠️ No images uploaded to B2 or upload failed")
+        except Exception as e:
+            worker_log(f"B2 image upload failed: {e}")
+            print(f"⚠️ B2 image upload failed: {e}")
+
     print(f"✅ Done. Images in {SCENES_DIR} | Manifest: {MANIFEST}")
     print(f"📝 Prompts logged to: {PROMPT_JSON}")
+    if job_id:
+        print(f"🖼️ Images also saved to: {IMAGES_DIR}")
 
 if __name__ == "__main__":
     main()
