@@ -375,7 +375,7 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
     if trim_extra:
         env["TRIM_EXTRA_ARGS"] = trim_extra
 
-    cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name, "--style", style]
+    cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name]
     run_with_live_output(cmd, cwd=pipe_dir, env=env, timeout=5400)  # 90 minute timeout
 
     final_video = pipe_dir / "final_video.mp4"
