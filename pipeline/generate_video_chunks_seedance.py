@@ -338,32 +338,80 @@ def _fileoutput_to_bytes(obj: Any) -> Optional[bytes]:
                     pass
     return None
 
-def outputs_to_video_bytes(out: Any) -> Optional[bytes]:
-    if isinstance(out, str) and out.startswith(("http://", "https://")):
-        try:
-            return _download_bytes(out)
-        except Exception:
-            pass
-    if isinstance(out, (list, tuple)):
-        for item in out:
-            if isinstance(item, str) and item.startswith(("http://", "https://")):
-                try:
-                    return _download_bytes(item)
-                except Exception:
-                    continue
-            if isinstance(item, (list, tuple, dict)):
-                b = outputs_to_video_bytes(item)
+def download_video_bytes_with_retry(prediction_output: Any, max_download_retries: int = 3, download_timeout: int = 60) -> Optional[bytes]:
+    """
+    Download video bytes with separate retry logic from generation.
+    Only retries the download, not the generation.
+    """
+    def _try_download(output: Any) -> Optional[bytes]:
+        """Single download attempt with timeout"""
+        if isinstance(output, str) and output.startswith(("http://", "https://")):
+            try:
+                # Add timeout to download request
+                import requests
+                r = requests.get(output, stream=True, timeout=download_timeout)
+                r.raise_for_status()
+                return r.content
+            except Exception as e:
+                print(f"⚠️  Download attempt failed: {e}")
+                raise
+        if isinstance(output, (list, tuple)):
+            for item in output:
+                if isinstance(item, str) and item.startswith(("http://", "https://")):
+                    try:
+                        import requests
+                        r = requests.get(item, stream=True, timeout=download_timeout)
+                        r.raise_for_status()
+                        return r.content
+                    except Exception as e:
+                        print(f"⚠️  Download attempt failed: {e}")
+                        raise
+                if isinstance(item, (list, tuple, dict)):
+                    b = _try_download(item)
+                    if b:
+                        return b
+                b = _fileoutput_to_bytes(item)
                 if b:
                     return b
-            b = _fileoutput_to_bytes(item)
-            if b:
-                return b
-    if isinstance(out, dict):
-        for v in out.values():
-            b = outputs_to_video_bytes(v)
-            if b:
-                return b
-    return _fileoutput_to_bytes(out)
+        if isinstance(output, dict):
+            for v in output.values():
+                b = _try_download(v)
+                if b:
+                    return b
+        return _fileoutput_to_bytes(output)
+
+    # Separate retry logic for downloads with exponential backoff
+    base_delay = 1.0
+
+    for attempt in range(max_download_retries):
+        try:
+            result = _try_download(prediction_output)
+            if result and len(result) > 1024:  # Validate we got meaningful data
+                if attempt > 0:
+                    print(f"✅ Download succeeded after {attempt + 1} attempts ({len(result)} bytes)")
+                return result
+            elif result:
+                print(f"⚠️  Download returned too little data ({len(result)} bytes), retrying...")
+                if attempt == max_download_retries - 1:
+                    raise RuntimeError(f"Download returned insufficient data: {len(result)} bytes")
+        except Exception as e:
+            if attempt < max_download_retries - 1:
+                # Exponential backoff with jitter for download failures
+                delay = base_delay * (2 ** attempt) + (time.time() % 0.5)
+                print(f"⚠️  Download failed (attempt {attempt + 1}/{max_download_retries}): {e}")
+                print(f"⚠️  Retrying download in {delay:.1f}s...")
+                time.sleep(delay)
+                continue
+            else:
+                print(f"❌ All {max_download_retries} download attempts failed")
+                raise
+
+    return None
+
+
+def outputs_to_video_bytes(out: Any) -> Optional[bytes]:
+    """Legacy function for backward compatibility - now uses separate download retry logic"""
+    return download_video_bytes_with_retry(out)
 
 
 def write_bytes(path: Path, data: bytes):
@@ -394,37 +442,43 @@ def try_seedance(model: str, image_path: Path, prompt: str, duration_s: int, res
     # Clamp duration to API's valid range (5-12 seconds)
     clamped_duration = max(5, min(12, duration_s))
 
-    # Retry logic for network/API errors
-    max_retries = 3
+    # Improved retry logic for generation with exponential backoff and jitter
+    max_generation_retries = 3
     base_delay = 2.0
 
-    for attempt in range(max_retries):
+    for attempt in range(max_generation_retries):
         try:
-            return _run(clamped_duration)
+            prediction = _run(clamped_duration)
+            print(f"🚀 Generation started (attempt {attempt + 1}/{max_generation_retries})")
+            return prediction
         except ReplicateError as e:
             # If API rejects the clamped duration, try with a fallback within the valid range
             if clamped_duration > 5 and "duration" in str(e).lower():
                 fallback_duration = clamped_duration - 1
                 print(f"⚠️  API rejected {clamped_duration}s duration, trying with fallback ({fallback_duration}s)")
                 try:
-                    return _run(fallback_duration)
+                    prediction = _run(fallback_duration)
+                    print(f"🚀 Generation started with fallback duration (attempt {attempt + 1}/{max_generation_retries})")
+                    return prediction
                 except ReplicateError:
-                    if attempt < max_retries - 1:
-                        delay = base_delay * (2 ** attempt)
-                        print(f"⚠️  Fallback duration also failed, retrying in {delay}s... (attempt {attempt + 1}/{max_retries})")
+                    if attempt < max_generation_retries - 1:
+                        # Exponential backoff with jitter for duration-related failures
+                        delay = base_delay * (2 ** attempt) + (time.time() % 1)  # Add jitter
+                        print(f"⚠️  Fallback duration also failed, retrying in {delay:.1f}s... (attempt {attempt + 1}/{max_generation_retries})")
                         time.sleep(delay)
                         continue
                     raise
             else:
-                # Network or other API errors - retry with exponential backoff
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    print(f"⚠️  API error (attempt {attempt + 1}/{max_retries}): {e}")
-                    print(f"⚠️  Retrying in {delay}s...")
+                # Network or other API errors - retry with exponential backoff and jitter
+                if attempt < max_generation_retries - 1:
+                    # Exponential backoff with jitter to avoid thundering herd
+                    delay = base_delay * (2 ** attempt) + (time.time() % 1)
+                    print(f"⚠️  Generation failed (attempt {attempt + 1}/{max_generation_retries}): {e}")
+                    print(f"⚠️  Retrying in {delay:.1f}s...")
                     time.sleep(delay)
                     continue
                 else:
-                    print(f"❌ All {max_retries} attempts failed")
+                    print(f"❌ All {max_generation_retries} generation attempts failed")
                     raise
 
 # ---------- Trim to target (no padding, no zoom) ----------
@@ -609,8 +663,28 @@ def main():
         }
 
         try:
-            out = try_seedance(args.model, img_path, prompt, request_int, args.resolution, args.fps)
-            data = outputs_to_video_bytes(out)
+            # Use improved generation logic with separate download retries
+            prediction = try_seedance(args.model, img_path, prompt, request_int, args.resolution, args.fps)
+
+            # Handle both direct output and prediction objects
+            if prediction and hasattr(prediction, 'id'):  # It's a prediction object
+                try:
+                    pred_id = getattr(prediction, 'id', None)
+                    if pred_id:
+                        print(f"📹 Generation submitted, prediction ID: {pred_id}")
+                    else:
+                        print(f"📹 Generation completed synchronously")
+                except Exception:
+                    print(f"📹 Generation completed synchronously")
+                # For now, we'll still use synchronous waiting but with better error handling
+                # In a full implementation, this would poll the prediction status
+                out = prediction
+            else:
+                print(f"📹 Generation completed synchronously")
+                out = prediction
+
+            # Use separate download retry logic with timeout
+            data = download_video_bytes_with_retry(out, max_download_retries=3, download_timeout=60)
             if not data:
                 print(f"DEBUG output type: {type(out)}; sample: {str(out)[:200]}")
                 raise RuntimeError(f"No usable video bytes in model output (scene {scene_id}).")
