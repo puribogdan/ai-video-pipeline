@@ -246,8 +246,13 @@ def main():
             # Remove background from portrait image using rembg
             try:
                 with Image.open(portrait_local) as img:
-                    # Process image with rembg to remove background
-                    output_bytes = rembg.remove(img)
+                    # Convert image to bytes before passing to rembg
+                    img_buffer = io.BytesIO()
+                    img.save(img_buffer, format='PNG')
+                    img_bytes = img_buffer.getvalue()
+
+                    # Process image bytes with rembg to remove background
+                    output_bytes = rembg.remove(img_bytes)
 
                     # Save the processed image (without background)
                     processed_img = Image.open(io.BytesIO(output_bytes))
