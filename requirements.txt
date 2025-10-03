@@ -29,6 +29,5 @@ webrtcvad-wheels; platform_system == "Windows"
 webrtcvad; platform_system != "Windows"
 boto3==1.35.16
 tenacity==8.5.0
-
-
+rembg==2.0.56
 

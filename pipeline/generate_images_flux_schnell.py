@@ -20,6 +20,7 @@ import requests
 from dotenv import load_dotenv
 from PIL import Image
 import replicate
+import rembg
 
 # Import B2 upload function
 try:
@@ -241,8 +242,55 @@ def main():
             SCENES_DIR.mkdir(parents=True, exist_ok=True)
             portrait_local = SCENES_DIR / ("portrait_ref" + src.suffix.lower())
             copy2(src, portrait_local)
-            portrait_path = portrait_local
-            print(f"👤 Using portrait reference: {portrait_path} (size={portrait_path.stat().st_size} sha1={_sha12(portrait_path)})")
+
+            # Remove background from portrait image using rembg
+            try:
+                with Image.open(portrait_local) as img:
+                    # Process image with rembg to remove background
+                    output_bytes = rembg.remove(img)
+
+                    # Save the processed image (without background)
+                    processed_img = Image.open(io.BytesIO(output_bytes))
+                    if processed_img.mode not in ("RGB", "RGBA"):
+                        processed_img = processed_img.convert("RGBA")
+
+                    # Create new filename for processed image
+                    portrait_no_bg = SCENES_DIR / ("portrait_ref_no_bg.png")
+                    processed_img.save(portrait_no_bg, format="PNG")
+
+                    portrait_path = portrait_no_bg
+                    print(f"👤 Using portrait reference (background removed): {portrait_path} (size={portrait_path.stat().st_size} sha1={_sha12(portrait_path)})")
+
+                    # Also save the original image for database storage
+                    portrait_original = SCENES_DIR / ("portrait_ref_original.png")
+                    # Convert original to PNG if it's not already
+                    if portrait_local.suffix.lower() != '.png':
+                        original_img = Image.open(portrait_local)
+                        if original_img.mode not in ("RGB", "RGBA"):
+                            original_img = original_img.convert("RGB")
+                        original_img.save(portrait_original, format="PNG")
+                    else:
+                        copy2(portrait_local, portrait_original)
+
+                    print(f"💾 Saved both original and background-removed portrait images for database storage")
+
+            except Exception as e:
+                # Fallback to original image if rembg processing fails
+                print(f"⚠️ Background removal failed: {e}, using original image")
+                portrait_path = portrait_local
+
+                # Still save original for database storage
+                portrait_original = SCENES_DIR / ("portrait_ref_original.png")
+                if portrait_local.suffix.lower() != '.png':
+                    original_img = Image.open(portrait_local)
+                    if original_img.mode not in ("RGB", "RGBA"):
+                        original_img = original_img.convert("RGB")
+                    original_img.save(portrait_original, format="PNG")
+                else:
+                    copy2(portrait_local, portrait_original)
+
+                print(f"💾 Saved original portrait image for database storage")
+                print(f"👤 Using portrait reference (original): {portrait_path} (size={portrait_path.stat().st_size} sha1={_sha12(portrait_path)})")
         else:
             print(f"⚠️ PORTRAIT_PATH set but file not found: {src}")
 

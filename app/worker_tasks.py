@@ -475,37 +475,59 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
                 )
                 log(f"Uploaded video_prompts.json to: {video_prompts_key}")
 
-            # Upload portrait image if it exists
-            portrait_path = job_dir / "pipeline" / "scenes" / "portrait_ref.png"
+            # Upload portrait images (both original and background-removed) if they exist
             portrait_extensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp']
             portrait_uploaded = False
 
+            # Upload original portrait image
+            original_portrait_path = job_dir / "pipeline" / "scenes" / "portrait_ref_original.png"
+            if original_portrait_path.exists():
+                portrait_key = f"exports/{job_id}/portrait_ref_original.png"
+                s3.upload_file(
+                    str(original_portrait_path),
+                    bucket_name,
+                    portrait_key,
+                    ExtraArgs={'ContentType': 'image/png'}
+                )
+                log(f"Uploaded original portrait image to: {portrait_key}")
+                portrait_uploaded = True
+
+            # Upload background-removed portrait image
+            no_bg_portrait_path = job_dir / "pipeline" / "scenes" / "portrait_ref_no_bg.png"
+            if no_bg_portrait_path.exists():
+                portrait_no_bg_key = f"exports/{job_id}/portrait_ref_no_bg.png"
+                s3.upload_file(
+                    str(no_bg_portrait_path),
+                    bucket_name,
+                    portrait_no_bg_key,
+                    ExtraArgs={'ContentType': 'image/png'}
+                )
+                log(f"Uploaded background-removed portrait image to: {portrait_no_bg_key}")
+                portrait_uploaded = True
+
+            # Also check for other portrait formats (fallback for compatibility)
             for ext in portrait_extensions:
                 potential_portrait = job_dir / "pipeline" / "scenes" / f"portrait_ref{ext}"
                 if potential_portrait.exists():
-                    portrait_path = potential_portrait
+                    portrait_key = f"exports/{job_id}/portrait_ref{ext}"
+                    # Determine content type based on file extension
+                    content_type = 'image/png'  # default
+                    if ext.lower() == '.jpg' or ext.lower() == '.jpeg':
+                        content_type = 'image/jpeg'
+                    elif ext.lower() == '.webp':
+                        content_type = 'image/webp'
+                    elif ext.lower() == '.bmp':
+                        content_type = 'image/bmp'
+
+                    s3.upload_file(
+                        str(potential_portrait),
+                        bucket_name,
+                        portrait_key,
+                        ExtraArgs={'ContentType': content_type}
+                    )
+                    log(f"Uploaded portrait image to: {portrait_key}")
+                    portrait_uploaded = True
                     break
-
-            if portrait_path.exists():
-                # Determine content type based on file extension
-                _, ext = os.path.splitext(str(portrait_path))
-                content_type = 'image/png'  # default
-                if ext.lower() == '.jpg' or ext.lower() == '.jpeg':
-                    content_type = 'image/jpeg'
-                elif ext.lower() == '.webp':
-                    content_type = 'image/webp'
-                elif ext.lower() == '.bmp':
-                    content_type = 'image/bmp'
-
-                portrait_key = f"exports/{job_id}/portrait_ref{ext}"
-                s3.upload_file(
-                    str(portrait_path),
-                    bucket_name,
-                    portrait_key,
-                    ExtraArgs={'ContentType': content_type}
-                )
-                log(f"Uploaded portrait image to: {portrait_key}")
-                portrait_uploaded = True
 
             # Upload audio files if job_dir provided
             if job_dir:
