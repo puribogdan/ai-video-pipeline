@@ -203,12 +203,11 @@ def enhance_scene_descriptions_with_claude(scenes: List[Dict[str, Any]]) -> List
     prompt = f"""
 Rewrite the following scene descriptions into concise prompts for an AI image-to-video generator. Each rewritten prompt should:
 
-- Focus on one clear action or state per clip (no multiple events)
-- Keep characters' proportions and style stable
-- Ensure natural, believable contact with the environment (no floating, no glitches)
-- Add gentle, intentional motion only (like slight gestures, breeze, or smooth camera movement)
-- Remove dialogue or complex multi-step actions
-- Use clear, simple language suitable for 5–10 second video clips
+- Show only one simple action or state per clip.
+- Keep characters’ proportions, style, and appearance consistent.
+- Ensure characters and objects connect naturally with the environment.
+- Add only gentle, smooth motion (e.g., small gestures, breeze, slow camera pan).
+- Use short, clear language for a 5–10 second clip.
 
 Scene descriptions to rewrite:
 {full_prompt}
