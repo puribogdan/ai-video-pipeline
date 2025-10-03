@@ -30,4 +30,5 @@ webrtcvad; platform_system != "Windows"
 boto3==1.35.16
 tenacity==8.5.0
 rembg==2.0.67
+onnxruntime>=1.15.0
 
