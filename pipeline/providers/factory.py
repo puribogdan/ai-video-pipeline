@@ -16,7 +16,7 @@ def get_llm_provider():
     has_openai = bool(settings.OPENAI_API_KEY)
 
     if has_claude and has_openai:
-        print("[DEBUG] Using Claude (primary) + OpenAI (fallback)")
+        print("[DEBUG] Using OpenAI (primary) + Claude (fallback)")
         return FallbackLLMProvider(
             claude_key=settings.CLAUDE_API_KEY or "",
             openai_key=settings.OPENAI_API_KEY or ""

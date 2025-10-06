@@ -33,7 +33,7 @@ def write_scenes(scenes: List[Dict[str, Any]]):
     print(f"✅ Wrote {len(scenes)} scenes to: {OUT_PATH}")
 
 # ---------- LLM Provider ----------
-MODEL_NAME = "claude-opus-4-1-20250805"
+MODEL_NAME = "gpt-5-2025-08-07"
 
 def detect_portrait_image() -> bool:
     """Check if a portrait image is available for use in prompts."""
