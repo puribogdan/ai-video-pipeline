@@ -735,13 +735,45 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
 
         log(f"[DEBUG] ================================")
 
-        # Update status: active (job started)
-        try:
-            from app.main import _save_job_completion
-            _save_job_completion(job_id, "active", {"message": "Job started - initializing video processing pipeline"})
-            log(f"[INFO] Job status updated to 'active' for job_id: {job_id}")
-        except Exception as e:
-            log(f"[WARNING] Failed to save initial status: {e}")
+        # Verify audio file exists and is stable before marking job as active
+        log(f"[DEBUG] Verifying audio file before starting job...")
+        audio_file_verified = False
+
+        if upload_path:
+            upload_path_obj = Path(upload_path)
+            log(f"[DEBUG] Checking upload path: {upload_path_obj}")
+
+            # Check if upload path exists and is stable
+            if upload_path_obj.exists():
+                try:
+                    # Check file stability by verifying size multiple times
+                    size1 = upload_path_obj.stat().st_size
+                    time.sleep(0.5)
+                    size2 = upload_path_obj.stat().st_size
+
+                    if size1 == size2 and size1 > 0:
+                        log(f"[DEBUG] Audio file verified: {upload_path_obj} ({size1} bytes)")
+                        audio_file_verified = True
+                    else:
+                        log(f"[WARNING] Audio file size unstable: {size1} -> {size2} bytes")
+                except Exception as e:
+                    log(f"[WARNING] Error verifying audio file: {e}")
+            else:
+                log(f"[WARNING] Upload path does not exist: {upload_path_obj}")
+        else:
+            log(f"[WARNING] No upload path provided")
+
+        # Only mark job as active if audio file is verified
+        if audio_file_verified:
+            try:
+                from app.main import _save_job_completion
+                _save_job_completion(job_id, "active", {"message": "Job started - initializing video processing pipeline"})
+                log(f"[INFO] Job status updated to 'active' for job_id: {job_id}")
+            except Exception as e:
+                log(f"[WARNING] Failed to save initial status: {e}")
+        else:
+            log(f"[ERROR] Audio file verification failed, not marking job as active")
+            raise RuntimeError(f"Audio file verification failed for path: {upload_path}")
 
         if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
             log("Using fake pipeline mode")
@@ -984,15 +1016,35 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
                             f"Job directory: {job_dir}, Available files: {available_files}"
                         )
 
-        # Validate audio file is not empty
+        # Validate audio file is not empty and still accessible
         if hint_audio is None:
             raise RuntimeError("Audio file is None - this should not happen")
 
-        audio_size = hint_audio.stat().st_size
-        if audio_size == 0:
-            raise RuntimeError(f"Audio file exists but is empty (0 bytes): {hint_audio}")
+        # Additional validation before processing
+        try:
+            audio_size = hint_audio.stat().st_size
+            if audio_size == 0:
+                raise RuntimeError(f"Audio file exists but is empty (0 bytes): {hint_audio}")
 
-        log(f"[INFO] Audio file validated: {hint_audio} ({audio_size} bytes)")
+            # Verify file is still readable
+            with open(hint_audio, 'rb') as f:
+                header = f.read(64)
+                if len(header) < 64:
+                    raise RuntimeError(f"Audio file appears truncated: only {len(header)} bytes readable")
+
+            log(f"[INFO] Audio file validated: {hint_audio} ({audio_size} bytes)")
+        except Exception as e:
+            log(f"[ERROR] Audio file validation failed: {e}")
+            # Try to find alternative audio file
+            log(f"[DEBUG] Attempting to find alternative audio file...")
+            alternative_audio = _find_any_audio(job_dir)
+            if alternative_audio and alternative_audio != hint_audio:
+                log(f"[INFO] Found alternative audio file: {alternative_audio}")
+                hint_audio = alternative_audio
+                audio_size = hint_audio.stat().st_size
+                log(f"[INFO] Using alternative audio file: {hint_audio} ({audio_size} bytes)")
+            else:
+                raise RuntimeError(f"Audio file validation failed and no alternative found: {e}")
 
         # Run the main video processing pipeline
         try:
