@@ -63,10 +63,15 @@ SYSTEM_PROMPT = (
     "- Consider: dramatic pauses, important descriptions, character emotions, scene changes\n"
     "- Aim for 5-10 seconds per scene, but prioritize what serves the story best\n\n"
     "Notes for scene_description:\n"
-    "- Use the entire story context to understand characters, setting, and continuity.\n"
-    "- Describe in detail how the image generated should look like, no actions or movements for the scene.\n"
-    "- Present tense, kid-friendly, concrete. "
-    "- No new objects, characters, or events beyond what is implied in the story.\n"
+    "- Use the full story context to ensure characters, setting, and continuity remain consistent.\n"
+    "- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
+    "  Example format: 'Characters in this scene: [Lena, two children, a small dog].'\n"
+    "- Describe the scene as a static image — no actions, movement, or unfolding events.\n"
+    "- Write in present tense, with kid-friendly, simple, and concrete language.\n"
+    "- Only include characters, objects, and details that are already established or implied in the story.\n"
+    "- Focus on visual details: appearance, colors, environment, mood, and arrangement in the frame.\n"
+
+
 )
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=12), stop=stop_after_attempt(3))
