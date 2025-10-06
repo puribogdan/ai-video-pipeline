@@ -368,13 +368,16 @@ def main():
         try:
             if portrait_path:
                 # Use portrait_cutout for all scenes when portrait is present
-                if ref_png is None or not ref_png.exists():
-                    raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
                 if i == 1:
+                    # Scene 1: only needs portrait_path
                     refs = [portrait_path]
                 elif i == 2:
+                    # Scene 2: needs both portrait and scene_001
+                    if ref_png is None or not ref_png.exists():
+                        raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
                     refs = [portrait_path, ref_png]
                 else:
+                    # Scene 3+: needs portrait and previous scene
                     if prev_png is None or not prev_png.exists():
                         raise RuntimeError(f"Missing references for scene {sid}.")
                     refs = [portrait_path, prev_png]
