@@ -745,66 +745,84 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
 
         log(f"[DEBUG] ================================")
 
-        # Verify audio file exists and is stable before marking job as active
-        log(f"[DEBUG] Verifying audio file before starting job...")
+        # Flexible audio file verification - accept any audio filename
+        log(f"[DEBUG] Looking for any audio file in job directory...")
         audio_file_verified = False
+        final_audio_path = None
 
+        # Create job directory if it doesn't exist
+        job_dir = UPLOADS_DIR / job_id
+        try:
+            job_dir.mkdir(parents=True, exist_ok=True)
+            log(f"[DEBUG] Job directory ready: {job_dir}")
+        except Exception as e:
+            log(f"[ERROR] Failed to create job directory {job_dir}: {e}")
+            raise RuntimeError(f"Failed to create job directory: {e}")
+
+        # First, try the provided upload path if it exists
         if upload_path:
             upload_path_obj = Path(upload_path)
-            log(f"[DEBUG] Checking upload path: {upload_path_obj}")
-            log(f"[DEBUG] Upload path exists: {upload_path_obj.exists()}")
-            log(f"[DEBUG] Upload path is file: {upload_path_obj.is_file() if upload_path_obj.exists() else 'N/A'}")
+            log(f"[DEBUG] Checking provided upload path: {upload_path_obj}")
 
-            # Enhanced debugging for file access issues
-            if upload_path_obj.exists():
+            if upload_path_obj.exists() and upload_path_obj.is_file():
                 try:
-                    # Check file permissions and accessibility
-                    log(f"[DEBUG] Upload path permissions: {oct(upload_path_obj.stat().st_mode)}")
-                    log(f"[DEBUG] Upload path is readable: {os.access(upload_path_obj, os.R_OK)}")
-                    log(f"[DEBUG] Upload path is writable: {os.access(upload_path_obj, os.W_OK)}")
+                    # Verify it's actually an audio file
+                    size = upload_path_obj.stat().st_size
+                    if size > 0:
+                        # Check if it's an audio file by extension or mime type
+                        mt, _ = mimetypes.guess_type(str(upload_path_obj))
+                        is_audio = (upload_path_obj.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma') or
+                                   (mt and mt.startswith('audio/')))
 
-                    # Check file stability by verifying size multiple times
-                    size1 = upload_path_obj.stat().st_size
-                    log(f"[DEBUG] First size check: {size1} bytes")
-                    time.sleep(0.5)
-                    size2 = upload_path_obj.stat().st_size
-                    log(f"[DEBUG] Second size check: {size2} bytes")
-
-                    if size1 == size2 and size1 > 0:
-                        log(f"[DEBUG] Audio file verified: {upload_path_obj} ({size1} bytes)")
-                        audio_file_verified = True
+                        if is_audio:
+                            log(f"[INFO] Using provided audio file: {upload_path_obj} ({size} bytes)")
+                            final_audio_path = upload_path_obj
+                            audio_file_verified = True
+                        else:
+                            log(f"[WARNING] Provided file is not an audio file: {upload_path_obj} (mime: {mt})")
                     else:
-                        log(f"[WARNING] Audio file size unstable: {size1} -> {size2} bytes")
-
-                    # Additional verification - try to read the file
-                    try:
-                        with open(upload_path_obj, 'rb') as f:
-                            header = f.read(64)
-                            log(f"[DEBUG] Successfully read file header: {len(header)} bytes")
-                            log(f"[DEBUG] File header (first 32 bytes): {header[:32]}")
-                    except Exception as read_e:
-                        log(f"[WARNING] Cannot read file: {read_e}")
-
+                        log(f"[WARNING] Provided file is empty: {upload_path_obj}")
                 except Exception as e:
-                    log(f"[WARNING] Error verifying audio file: {e}")
-                    log(f"[WARNING] Exception type: {type(e).__name__}")
+                    log(f"[WARNING] Error checking provided upload path: {e}")
             else:
-                log(f"[WARNING] Upload path does not exist: {upload_path_obj}")
-                # Check if parent directory exists
-                log(f"[DEBUG] Upload path parent: {upload_path_obj.parent}")
-                log(f"[DEBUG] Upload path parent exists: {upload_path_obj.parent.exists() if upload_path_obj.parent else 'N/A'}")
+                log(f"[DEBUG] Provided upload path does not exist or is not a file: {upload_path_obj}")
 
-                # List parent directory contents if it exists
-                if upload_path_obj.parent and upload_path_obj.parent.exists():
-                    try:
-                        parent_contents = [p.name for p in upload_path_obj.parent.iterdir()]
-                        log(f"[DEBUG] Parent directory contents: {parent_contents}")
-                    except Exception as list_e:
-                        log(f"[WARNING] Cannot list parent directory: {list_e}")
-        else:
-            log(f"[WARNING] No upload path provided")
+        # If provided path didn't work, look for any audio file in job directory
+        if not audio_file_verified:
+            log(f"[DEBUG] Searching for any audio file in job directory...")
+            found_audio = _find_any_audio(job_dir)
 
-        # Only mark job as active if audio file is verified
+            if found_audio:
+                log(f"[INFO] Found audio file in job directory: {found_audio.name}")
+                log(f"[DEBUG] Audio file size: {found_audio.stat().st_size} bytes")
+                log(f"[DEBUG] Audio file mime type: {mimetypes.guess_type(str(found_audio))}")
+                final_audio_path = found_audio
+                audio_file_verified = True
+            else:
+                log(f"[WARNING] No audio files found in job directory")
+
+        # Final verification - ensure we have a valid audio file
+        if audio_file_verified and final_audio_path:
+            try:
+                # Final validation of the audio file
+                audio_size = final_audio_path.stat().st_size
+                if audio_size == 0:
+                    raise RuntimeError(f"Audio file exists but is empty (0 bytes): {final_audio_path}")
+
+                # Verify file is readable
+                with open(final_audio_path, 'rb') as f:
+                    header = f.read(64)
+                    if len(header) < 64:
+                        raise RuntimeError(f"Audio file appears truncated: only {len(header)} bytes readable")
+
+                log(f"[INFO] Audio file validated: {final_audio_path} ({audio_size} bytes)")
+                log(f"[DEBUG] Audio file is ready for processing")
+
+            except Exception as e:
+                log(f"[ERROR] Audio file validation failed: {e}")
+                audio_file_verified = False
+
+        # Mark job as active if audio file is verified
         if audio_file_verified:
             try:
                 from app.main import _save_job_completion
@@ -813,8 +831,8 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             except Exception as e:
                 log(f"[WARNING] Failed to save initial status: {e}")
         else:
-            log(f"[ERROR] Audio file verification failed, not marking job as active")
-            raise RuntimeError(f"Audio file verification failed for path: {upload_path}")
+            log(f"[ERROR] No valid audio file found for job {job_id}")
+            raise RuntimeError(f"No valid audio file found. Upload path: {upload_path}, Job directory: {job_dir}")
 
         if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
             log("Using fake pipeline mode")
@@ -843,22 +861,22 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             log(f"[ERROR] Failed to create job directory {job_dir}: {e}")
             raise RuntimeError(f"Failed to create job directory: {e}")
 
-        hint_audio = Path(upload_path) if upload_path else None
-        log(f"[DEBUG] Upload path provided: {upload_path}")
-        log(f"[DEBUG] Hint audio path: {hint_audio}")
+        # Use the verified audio file path
+        hint_audio = final_audio_path
+        log(f"[DEBUG] Using verified audio file: {hint_audio}")
+        log(f"[DEBUG] Audio file exists: {hint_audio.exists() if hint_audio else 'N/A'}")
+        log(f"[DEBUG] Audio file size: {hint_audio.stat().st_size if hint_audio else 'N/A'} bytes")
 
-        # Enhanced debugging for file naming issues
+        # Enhanced debugging for the selected audio file
         if hint_audio:
-            log(f"[DEBUG] Hint audio filename: {hint_audio.name}")
-            log(f"[DEBUG] Hint audio extension: {hint_audio.suffix}")
-            log(f"[DEBUG] Hint audio exists: {hint_audio.exists()}")
-            log(f"[DEBUG] Hint audio path absolute: {hint_audio.absolute()}")
-            log(f"[DEBUG] Hint audio path parent: {hint_audio.parent}")
-            log(f"[DEBUG] Hint audio path parent exists: {hint_audio.parent.exists()}")
+            log(f"[DEBUG] Selected audio filename: {hint_audio.name}")
+            log(f"[DEBUG] Selected audio extension: {hint_audio.suffix}")
+            log(f"[DEBUG] Selected audio path absolute: {hint_audio.absolute()}")
+            log(f"[DEBUG] Selected audio path parent: {hint_audio.parent}")
+            log(f"[DEBUG] Selected audio path parent exists: {hint_audio.parent.exists()}")
 
-        # Check for hardcoded filename (info only, since we're making system flexible)
-        if upload_path and "input_cut.mp3" in upload_path:
-            log(f"[INFO] Upload path contains hardcoded filename 'input_cut.mp3' - system will find any audio file")
+        # System now accepts any audio filename - no hardcoded expectations
+        log(f"[INFO] System configured to accept any audio filename for maximum flexibility")
 
         initial_listing = sorted([p.name for p in job_dir.iterdir()]) if job_dir.exists() else []
         log(f"[DEBUG] Job dir initial listing: {initial_listing}")
