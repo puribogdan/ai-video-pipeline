@@ -72,11 +72,14 @@ def get_system_prompt(has_portrait: bool = False) -> str:
             "Notes for scene_description image generation:\n"
             "- Use the full story context to ensure characters, setting, and continuity remain consistent.\n"
             "- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
-            "- Example format: 'Portrait Subject (person from image[0])', 'an elephant', 'a small dog'\n"
+            "- Always describe each character SPECIFICALLY, not vaguely. Avoid generic terms like 'a person', 'friend', or 'someone'. Instead, specify clear visible traits such as gender, age, species, or role.\n"
+            "- Example format: 'Portrait Subject (person from image[0])', 'a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'.\n"
+            "- If the story mentions a new person or animal, infer a simple, concrete descriptor (e.g., if 'a friend' is mentioned, decide if it’s 'a girl', 'a boy', or 'a man' based on context).\n"
             "- Describe the scene as a static image — no actions, movement, or unfolding events.\n"
             "- Write in present tense, with kid-friendly, simple, and concrete language.\n"
             "- Only include characters, objects, and details that are already established or implied in the story.\n"
             "- Focus on visual details: appearance, colors, environment, mood, and arrangement in the frame.\n"
+
         )
     else:
         return (
@@ -101,11 +104,14 @@ def get_system_prompt(has_portrait: bool = False) -> str:
             "Notes for scene_description image generation:\n"
             "- Use the full story context to ensure characters, setting, and continuity remain consistent.\n"
             "- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
-            "  Example format: 'Characters in this scene: [Lena, an elephant, a small dog].'\n"
+            "- Always describe each character SPECIFICALLY, not vaguely. Avoid generic terms like 'a person', 'friend', or 'someone'. Instead, specify clear visible traits such as gender, age, species, or role.\n"
+            "- Example format: ' 'a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'.\n"
+            "- If the story mentions a new person or animal, infer a simple, concrete descriptor (e.g., if 'a friend' is mentioned, decide if it’s 'a girl', 'a boy', or 'a man' based on context).\n"
             "- Describe the scene as a static image — no actions, movement, or unfolding events.\n"
             "- Write in present tense, with kid-friendly, simple, and concrete language.\n"
             "- Only include characters, objects, and details that are already established or implied in the story.\n"
             "- Focus on visual details: appearance, colors, environment, mood, and arrangement in the frame.\n"
+
         )
 
 def chat_json(model: str, messages: list, temperature: float | None = None):
