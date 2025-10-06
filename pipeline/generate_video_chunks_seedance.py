@@ -1,4 +1,4 @@
-# generate_video_chunks_seedance.py — Scene Description→Video per scene (Seedance), fixed 5-second videos (no trimming)
+# generate_video_chunks_seedance.py — Scene Description→Video per scene (Seedance), fixed 10-second videos (no trimming)
 from __future__ import annotations
 import os, sys, json, math, tempfile, uuid, io, time, logging
 from pathlib import Path
@@ -423,63 +423,42 @@ def write_bytes(path: Path, data: bytes):
 # ---------- Seedance call ----------
 def try_seedance(model: str, image_path: Path, prompt: str, duration_s: int, resolution: str, fps: int):
     """
-    Call Seedance with desired duration. API accepts 5-12 seconds, so clamp to this range.
-    If API rejects the duration, try with a fallback within the valid range.
+    Call Seedance with fixed 10-second duration. Always generate 10s videos.
     """
-    def _run(dur: int):
+    def _run():
         with open(image_path, "rb") as f:
             return replicate.run(
                 model,
                 input={
                     "prompt": prompt,
                     "image": f,
-                    "duration": int(dur),
+                    "duration": 10,  # Always use 10 seconds
                     "resolution": resolution,
                     "fps": int(fps),
                 },
             )
 
-    # Clamp duration to API's valid range (5-12 seconds)
-    clamped_duration = max(5, min(12, duration_s))
-
-    # Improved retry logic for generation with exponential backoff and jitter
+    # Always use 10 seconds - no clamping or fallback logic needed
     max_generation_retries = 3
     base_delay = 2.0
 
     for attempt in range(max_generation_retries):
         try:
-            prediction = _run(clamped_duration)
-            print(f"🚀 Generation started (attempt {attempt + 1}/{max_generation_retries})")
+            prediction = _run()
+            print(f"🚀 Generation started (attempt {attempt + 1}/{max_generation_retries}) - 10s video")
             return prediction
         except ReplicateError as e:
-            # If API rejects the clamped duration, try with a fallback within the valid range
-            if clamped_duration > 5 and "duration" in str(e).lower():
-                fallback_duration = clamped_duration - 1
-                print(f"⚠️  API rejected {clamped_duration}s duration, trying with fallback ({fallback_duration}s)")
-                try:
-                    prediction = _run(fallback_duration)
-                    print(f"🚀 Generation started with fallback duration (attempt {attempt + 1}/{max_generation_retries})")
-                    return prediction
-                except ReplicateError:
-                    if attempt < max_generation_retries - 1:
-                        # Exponential backoff with jitter for duration-related failures
-                        delay = base_delay * (2 ** attempt) + (time.time() % 1)  # Add jitter
-                        print(f"⚠️  Fallback duration also failed, retrying in {delay:.1f}s... (attempt {attempt + 1}/{max_generation_retries})")
-                        time.sleep(delay)
-                        continue
-                    raise
+            # Network or other API errors - retry with exponential backoff and jitter
+            if attempt < max_generation_retries - 1:
+                # Exponential backoff with jitter to avoid thundering herd
+                delay = base_delay * (2 ** attempt) + (time.time() % 1)
+                print(f"⚠️  Generation failed (attempt {attempt + 1}/{max_generation_retries}): {e}")
+                print(f"⚠️  Retrying in {delay:.1f}s...")
+                time.sleep(delay)
+                continue
             else:
-                # Network or other API errors - retry with exponential backoff and jitter
-                if attempt < max_generation_retries - 1:
-                    # Exponential backoff with jitter to avoid thundering herd
-                    delay = base_delay * (2 ** attempt) + (time.time() % 1)
-                    print(f"⚠️  Generation failed (attempt {attempt + 1}/{max_generation_retries}): {e}")
-                    print(f"⚠️  Retrying in {delay:.1f}s...")
-                    time.sleep(delay)
-                    continue
-                else:
-                    print(f"❌ All {max_generation_retries} generation attempts failed")
-                    raise
+                print(f"❌ All {max_generation_retries} generation attempts failed")
+                raise
 
 # ---------- Trim to target (no padding, no zoom) ----------
 def trim_to_target(src_path: Path, dst_path: Path, target_sec: float, fps: int) -> float:
