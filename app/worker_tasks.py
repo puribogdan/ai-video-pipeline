@@ -596,14 +596,26 @@ def upload_images_to_b2(job_id: str, images_dir: Path) -> Optional[Dict[str, str
     bucket_name = os.getenv("B2_BUCKET_NAME")
     key_id = os.getenv("B2_KEY_ID")
     app_key = os.getenv("B2_APPLICATION_KEY")
-    if bucket_name is None or key_id is None or app_key is None:
-        log("B2 env vars not set; skipping image upload.")
+
+    log(f"[DEBUG] B2 Image Upload - Checking environment variables...")
+    log(f"[DEBUG] B2_BUCKET_NAME: {'Set' if bucket_name else 'Not set'}")
+    log(f"[DEBUG] B2_KEY_ID: {'Set' if key_id else 'Not set'}")
+    log(f"[DEBUG] B2_APPLICATION_KEY: {'Set' if app_key else 'Not set'}")
+
+    if not bucket_name or not key_id or not app_key:
+        log("❌ B2 Image Upload - B2 credentials not properly configured. Please check environment variables.")
+        log(f"[DEBUG] B2_BUCKET_NAME: {bucket_name}")
+        log(f"[DEBUG] B2_KEY_ID: {'[SET]' if key_id else '[NOT SET]'}")
+        log(f"[DEBUG] B2_APPLICATION_KEY: {'[SET]' if app_key else '[NOT SET]'}")
         return None
 
     region = os.getenv("B2_REGION", "eu-central-003")
     endpoint = f'https://s3.{region}.backblazeb2.com'
-    log(f"[DEBUG] Using endpoint for images: {endpoint}, region: {region}")
+    log(f"[DEBUG] B2 Image Upload - Configuration: bucket={bucket_name}, region={region}")
+    log(f"[DEBUG] B2 Image Upload - Images directory: {images_dir}")
+    log(f"[DEBUG] B2 Image Upload - Images directory exists: {images_dir.exists()}")
 
+    # Test B2 connection before proceeding
     try:
         s3 = boto3.client(
             's3',
@@ -612,18 +624,35 @@ def upload_images_to_b2(job_id: str, images_dir: Path) -> Optional[Dict[str, str
             endpoint_url=endpoint,
             region_name=region
         )
-        log("Using S3-compatible boto3 client for Backblaze B2 image upload.")
+        log("✅ B2 Image Upload - S3 client created successfully for Backblaze B2")
+
+        # Test the connection with a simple head_bucket call
+        test_response = s3.head_bucket(Bucket=bucket_name)
+        log(f"✅ B2 Image Upload - Successfully connected to bucket: {bucket_name}")
 
         image_urls = {}
 
-        # Upload all PNG images from the images directory
+        # Upload all images from the images directory
         if images_dir.exists() and images_dir.is_dir():
             image_extensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp']
+
+            # List all files in the images directory first
+            try:
+                all_files = list(images_dir.iterdir())
+                log(f"[DEBUG] B2 Image Upload - Found {len(all_files)} files in images directory")
+                for f in all_files:
+                    log(f"[DEBUG] B2 Image Upload - File: {f.name} (size: {f.stat().st_size} bytes)")
+            except Exception as e:
+                log(f"[WARNING] B2 Image Upload - Error listing images directory: {e}")
+
             images_uploaded = 0
 
             for image_file in sorted(images_dir.iterdir()):
                 if image_file.is_file() and image_file.suffix.lower() in [ext.lower() for ext in image_extensions]:
                     try:
+                        file_size = image_file.stat().st_size
+                        log(f"[DEBUG] B2 Image Upload - Processing image: {image_file.name} ({file_size} bytes)")
+
                         # Determine content type based on file extension
                         _, ext = os.path.splitext(str(image_file))
                         content_type = 'image/png'  # default
@@ -636,6 +665,7 @@ def upload_images_to_b2(job_id: str, images_dir: Path) -> Optional[Dict[str, str
 
                         # Create B2 key for the image
                         image_key = f"exports/{job_id}/images/{image_file.name}"
+                        log(f"[DEBUG] B2 Image Upload - Uploading to B2 key: {image_key}")
 
                         # Upload image to B2
                         s3.upload_file(
@@ -649,27 +679,27 @@ def upload_images_to_b2(job_id: str, images_dir: Path) -> Optional[Dict[str, str
                         image_url = f"https://{bucket_name}.s3.{region}.backblazeb2.com/{image_key}"
                         image_urls[image_file.name] = image_url
                         images_uploaded += 1
-                        log(f"Uploaded image to B2: {image_key}")
+                        log(f"✅ B2 Image Upload - Successfully uploaded: {image_key}")
 
                     except Exception as e:
-                        log(f"[WARNING] Failed to upload image {image_file.name}: {e}")
+                        log(f"❌ B2 Image Upload - Failed to upload image {image_file.name}: {e}")
                         continue
 
-            log(f"Successfully uploaded {images_uploaded} images to B2")
+            log(f"✅ B2 Image Upload - Successfully uploaded {images_uploaded} images to B2")
             return image_urls if image_urls else None
         else:
-            log(f"Images directory does not exist or is not a directory: {images_dir}")
+            log(f"❌ B2 Image Upload - Images directory does not exist or is not a directory: {images_dir}")
             return None
 
     except Exception as e:
         import traceback
         err_msg = str(e)
         if isinstance(e, ClientError):
-            err_code = e.response['Error']['Code']
-            err_message = e.response['Error']['Message']
+            err_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            err_message = e.response.get('Error', {}).get('Message', 'Unknown error')
             err_msg += f" | Server: {err_code} - {err_message}"
-        log(f"B2 image upload failed: {type(e).__name__}: {err_msg}")
-        log(f"Full traceback:\n{traceback.format_exc()}")
+        log(f"❌ B2 Image Upload - B2 image upload failed: {type(e).__name__}: {err_msg}")
+        log(f"B2 Image Upload - Full traceback:\n{traceback.format_exc()}")
         return None
 
 
@@ -1003,6 +1033,30 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             b2_url = upload_to_b2(job_id, public_path, job_dir)
             video_url = b2_url or f"{BASE_URL}/media/{job_id}.mp4"
             log(f"Using video URL: {video_url}")
+
+            # Upload generated images to B2
+            images_dir = job_dir / "pipeline" / "images"
+            if images_dir.exists() and images_dir.is_dir():
+                log(f"Uploading images from: {images_dir}")
+                image_urls = upload_images_to_b2(job_id, images_dir)
+                if image_urls:
+                    log(f"✅ Successfully uploaded {len(image_urls)} images to B2")
+                    # Save image URLs to manifest for reference
+                    manifest_path = job_dir / "pipeline" / "scenes" / "manifest.json"
+                    if manifest_path.exists():
+                        try:
+                            import json
+                            manifest = json.loads(manifest_path.read_text())
+                            manifest["b2_image_urls"] = image_urls
+                            manifest_path.write_text(json.dumps(manifest, indent=2))
+                            log(f"Updated manifest with B2 image URLs")
+                        except Exception as e:
+                            log(f"[WARNING] Failed to update manifest with image URLs: {e}")
+                else:
+                    log(f"⚠️ No images uploaded to B2 or upload failed")
+            else:
+                log(f"[WARNING] Images directory not found: {images_dir}")
+
         except Exception as e:
             log(f"[WARNING] B2 upload failed, falling back to local URL: {e}")
             video_url = f"{BASE_URL}/media/{job_id}.mp4"

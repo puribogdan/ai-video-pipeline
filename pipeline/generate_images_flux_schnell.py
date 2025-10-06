@@ -424,21 +424,8 @@ def main():
     MANIFEST.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     PROMPT_JSON.write_text(json.dumps(prompt_log, indent=2), encoding="utf-8")
 
-    # Upload images to Backblaze B2 if job_id is provided and upload function is available
-    if job_id and upload_images_to_b2:
-        try:
-            worker_log(f"Uploading images to Backblaze B2 for job {job_id}...")
-            image_urls = upload_images_to_b2(job_id, IMAGES_DIR)
-            if image_urls:
-                print(f"✅ Images uploaded to B2: {len(image_urls)} files")
-                # Save image URLs to manifest for reference
-                manifest["b2_image_urls"] = image_urls
-                MANIFEST.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-            else:
-                print("⚠️ No images uploaded to B2 or upload failed")
-        except Exception as e:
-            worker_log(f"B2 image upload failed: {e}")
-            print(f"⚠️ B2 image upload failed: {e}")
+    # Note: B2 upload is now handled by the worker process after video completion
+    # This ensures all images are uploaded together with proper error handling
 
     print(f"✅ Done. Images in {SCENES_DIR} | Manifest: {MANIFEST}")
     print(f"📝 Prompts logged to: {PROMPT_JSON}")
