@@ -174,15 +174,46 @@ def _sha12(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()[:12]
 
-# -------------------- Prompt builders (ONLY style line varies) --------------------
+# -------------------- Prompt builders (style line and portrait instructions vary) --------------------
 def build_scene1_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
     if has_portrait:
-        return f"{desc}\n{style_line}"
+        portrait_prompt = """image[0] shows a recurring human character.
+Keep the same face, hairstyle, body type, and outfit as in image[0] across all scenes.
+Always include this person somewhere in the frame — they should never disappear or be off-screen.
+Only one instance of this person should appear (no duplicates, clones, or twins).
+Other people or animals may appear naturally as required by the story.
+
+If the story primarily features human characters, the person from image[0] should be the main protagonist and central focus of the scene.
+If the story's main subject is non-human (for example, an animal, vehicle, or landscape),
+include the person from image[0] as a supporting or background character interacting naturally with the scene,
+but do not make them the main focus.
+
+Maintain consistent clothing, lighting, and visual style from image[0] across all scenes.
+Match the overall scene layout, mood, and direction to image[1].
+Ensure the person from image[0] integrates naturally into the environment without duplication."""
+        return f"{desc}\n{portrait_prompt}\n{style_line}"
     else:
         return f"{desc}\n{style_line}"
 
 def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
-    return f"SCENE BRIEF: {desc}\n{style_line}"
+    if has_portrait:
+        portrait_prompt = """image[0] shows a recurring human character.
+Keep the same face, hairstyle, body type, and outfit as in image[0] across all scenes.
+Always include this person somewhere in the frame — they should never disappear or be off-screen.
+Only one instance of this person should appear (no duplicates, clones, or twins).
+Other people or animals may appear naturally as required by the story.
+
+If the story primarily features human characters, the person from image[0] should be the main protagonist and central focus of the scene.
+If the story's main subject is non-human (for example, an animal, vehicle, or landscape),
+include the person from image[0] as a supporting or background character interacting naturally with the scene,
+but do not make them the main focus.
+
+Maintain consistent clothing, lighting, and visual style from image[0] across all scenes.
+Match the overall scene layout, mood, and direction to image[1].
+Ensure the person from image[0] integrates naturally into the environment without duplication."""
+        return f"SCENE BRIEF: {desc}\n{portrait_prompt}\n{style_line}"
+    else:
+        return f"SCENE BRIEF: {desc}\n{style_line}"
 
 # -------------------- Model calls (with tiny retry) --------------------
 def _run_with_retry(fn, *args, retries: int = 2, delay: float = 1.5, **kwargs):
