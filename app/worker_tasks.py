@@ -787,9 +787,15 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             else:
                 log(f"[DEBUG] Provided upload path does not exist or is not a file: {upload_path_obj}")
 
-        # If provided path didn't work, look for any audio file in job directory
+        # Enhanced: If upload path didn't work, look for ANY audio file in job directory
+        # This handles cases where filename doesn't match hardcoded expectations
         if not audio_file_verified:
-            log(f"[DEBUG] Searching for any audio file in job directory...")
+            log(f"[DEBUG] Upload path didn't work, searching for any audio file in job directory...")
+
+        # Enhanced: If upload path didn't work, look for ANY audio file in job directory
+        # This handles cases where filename doesn't match hardcoded expectations
+        if not audio_file_verified:
+            log(f"[DEBUG] Upload path didn't work, searching for any audio file in job directory...")
             found_audio = _find_any_audio(job_dir)
 
             if found_audio:
@@ -820,7 +826,16 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
 
             except Exception as e:
                 log(f"[ERROR] Audio file validation failed: {e}")
-                audio_file_verified = False
+                # Try to find alternative audio file if validation fails
+                log(f"[DEBUG] Attempting to find alternative audio file...")
+                alternative_audio = _find_any_audio(job_dir)
+                if alternative_audio and alternative_audio != final_audio_path:
+                    log(f"[INFO] Found alternative audio file: {alternative_audio}")
+                    final_audio_path = alternative_audio
+                    audio_file_verified = True
+                    log(f"[INFO] Using alternative audio file: {final_audio_path}")
+                else:
+                    audio_file_verified = False
 
         # Mark job as active if audio file is verified
         if audio_file_verified:
@@ -832,7 +847,19 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
                 log(f"[WARNING] Failed to save initial status: {e}")
         else:
             log(f"[ERROR] No valid audio file found for job {job_id}")
-            raise RuntimeError(f"No valid audio file found. Upload path: {upload_path}, Job directory: {job_dir}")
+            # Enhanced error message that doesn't assume hardcoded filenames
+            job_files = []
+            if job_dir.exists():
+                try:
+                    job_files = [p.name for p in job_dir.iterdir() if p.is_file()]
+                except Exception as e:
+                    job_files = [f"error_listing_dir: {e}"]
+
+            raise RuntimeError(
+                f"No valid audio file found. Upload path: {upload_path}, "
+                f"Job directory: {job_dir}, Available files: {job_files}. "
+                f"System now accepts any audio filename - ensure file is fully uploaded and accessible."
+            )
 
         if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
             log("Using fake pipeline mode")
@@ -887,9 +914,9 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             log(f"[DEBUG] completion_status.json size: {Path(job_dir / 'completion_status.json').stat().st_size if (job_dir / 'completion_status.json').exists() else 'N/A'}")
             log(f"[DEBUG] completion_status.json modification time: {(job_dir / 'completion_status.json').stat().st_mtime if (job_dir / 'completion_status.json').exists() else 'N/A'}")
 
-        # Always look for any audio file in the job directory first (more robust approach)
+        # Enhanced: Always look for any audio file in the job directory first (most robust approach)
         # This makes the system flexible and accepts any audio filename, not just specific ones
-        log(f"[INFO] System now prioritizes finding any audio file in job directory for maximum compatibility")
+        log(f"[INFO] System prioritizes finding any audio file in job directory for maximum compatibility")
         log(f"[DEBUG] Looking for any audio file in job directory...")
         found_audio = _find_any_audio(job_dir)
 
@@ -917,12 +944,18 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
                 hint_audio = found_audio
             else:
                 # No audio file found - implement robust retry logic for race condition
-                max_retries = 6  # Increased from 1 to 6 retries
-                base_wait_time = 3  # Reduced base wait time but increased retries
+                # Enhanced for multiple simultaneous jobs
+                max_retries = 8  # Increased retries for better race condition handling
+                base_wait_time = 2  # Reduced base wait time for faster initial retries
 
                 for attempt in range(max_retries):
-                    wait_time = base_wait_time * (2 ** attempt)  # Exponential backoff: 3s, 6s, 12s, 24s, 48s, 96s
-                    log(f"[WARNING] No audio file found, waiting {wait_time} seconds and retrying (attempt {attempt + 1}/{max_retries})...")
+                    # Use exponential backoff with jitter for multiple jobs
+                    import random
+                    base_wait = base_wait_time * (2 ** attempt)
+                    jitter = random.uniform(0.5, 1.5)  # Add jitter to prevent thundering herd
+                    wait_time = base_wait * jitter
+
+                    log(f"[WARNING] No audio file found, waiting {wait_time:.1f} seconds and retrying (attempt {attempt + 1}/{max_retries})...")
                     log(f"[DEBUG] Job directory before wait: {job_dir}")
                     log(f"[DEBUG] Job directory exists: {job_dir.exists()}")
 
