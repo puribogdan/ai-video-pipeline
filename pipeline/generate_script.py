@@ -35,6 +35,79 @@ def write_scenes(scenes: List[Dict[str, Any]]):
 # ---------- LLM Provider ----------
 MODEL_NAME = "claude-opus-4-1-20250805"
 
+def detect_portrait_image() -> bool:
+    """Check if a portrait image is available for use in prompts."""
+    import os
+    from pathlib import Path
+
+    portrait_env = os.getenv("PORTRAIT_PATH", "").strip()
+    if not portrait_env:
+        return False
+
+    portrait_path = Path(portrait_env)
+    return portrait_path.exists() and portrait_path.is_file()
+
+def get_system_prompt(has_portrait: bool = False) -> str:
+    """Generate the system prompt based on whether portrait images are available."""
+    if has_portrait:
+        return (
+            "You are a creative video editor with good storytelling instincts. You must output ONLY valid JSON, no other text.\n\n"
+            "Input: a list WORDS = [{index, start, end, word}] with times relative to 0.\n\n"
+            "Task: split into contiguous SCENES using WORD INDICES ONLY.\n"
+            "Each scene should be between 5-10 seconds long based on word timings.\n\n"
+            "Guidelines:\n"
+            "- Do NOT invent, remove, or paraphrase words. Use exactly the provided words.\n"
+            "- No overlaps, no gaps; scenes must cover ALL words in order (each word exactly once).\n"
+            "- Choose scene durations between 5.0 and 10.0 seconds that make sense for the story flow.\n"
+            "- The first scene must start at time 0.0.\n"
+            "- Cuts must occur at word boundaries (by index).\n"
+            "- Consider natural story breaks, pauses, and narrative rhythm when choosing scene lengths.\n\n"
+            "Output ONLY JSON in this exact format:\n"
+            "{\"scenes\":[{\"start_word_index\":int,\"end_word_index\":int,\"scene_description\":\"text-to-image prompt\"}]}\n\n"
+            "Scene Duration Strategy:\n"
+            "- Analyze the word timings and story content to find natural scene breaks\n"
+            "- Choose durations that feel right for each scene - some moments need more time, others less\n"
+            "- Consider: dramatic pauses, important descriptions, character emotions, scene changes\n"
+            "- Aim for 5-10 seconds per scene, but prioritize what serves the story best\n\n"
+            "Notes for scene_description:\n"
+            "- Use the full story context to ensure characters, setting, and continuity remain consistent.\n"
+            "- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
+            "- If there is a portrait image added instead of the text format, use this prompt: 'Portrait Subject (person from image[0])', 'an elephant', 'a small dog'\n"
+            "- Describe the scene as a static image — no actions, movement, or unfolding events.\n"
+            "- Write in present tense, with kid-friendly, simple, and concrete language.\n"
+            "- Only include characters, objects, and details that are already established or implied in the story.\n"
+            "- Focus on visual details: appearance, colors, environment, mood, and arrangement in the frame.\n"
+        )
+    else:
+        return (
+            "You are a creative video editor with good storytelling instincts. You must output ONLY valid JSON, no other text.\n\n"
+            "Input: a list WORDS = [{index, start, end, word}] with times relative to 0.\n\n"
+            "Task: split into contiguous SCENES using WORD INDICES ONLY.\n"
+            "Each scene should be between 5-10 seconds long based on word timings.\n\n"
+            "Guidelines:\n"
+            "- Do NOT invent, remove, or paraphrase words. Use exactly the provided words.\n"
+            "- No overlaps, no gaps; scenes must cover ALL words in order (each word exactly once).\n"
+            "- Choose scene durations between 5.0 and 10.0 seconds that make sense for the story flow.\n"
+            "- The first scene must start at time 0.0.\n"
+            "- Cuts must occur at word boundaries (by index).\n"
+            "- Consider natural story breaks, pauses, and narrative rhythm when choosing scene lengths.\n\n"
+            "Output ONLY JSON in this exact format:\n"
+            "{\"scenes\":[{\"start_word_index\":int,\"end_word_index\":int,\"scene_description\":\"text-to-image prompt\"}]}\n\n"
+            "Scene Duration Strategy:\n"
+            "- Analyze the word timings and story content to find natural scene breaks\n"
+            "- Choose durations that feel right for each scene - some moments need more time, others less\n"
+            "- Consider: dramatic pauses, important descriptions, character emotions, scene changes\n"
+            "- Aim for 5-10 seconds per scene, but prioritize what serves the story best\n\n"
+            "Notes for scene_description:\n"
+            "- Use the full story context to ensure characters, setting, and continuity remain consistent.\n"
+            "- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
+            "  Example format: 'Characters in this scene: [Lena, two children, a small dog].'\n"
+            "- Describe the scene as a static image — no actions, movement, or unfolding events.\n"
+            "- Write in present tense, with kid-friendly, simple, and concrete language.\n"
+            "- Only include characters, objects, and details that are already established or implied in the story.\n"
+            "- Focus on visual details: appearance, colors, environment, mood, and arrangement in the frame.\n"
+        )
+
 def chat_json(model: str, messages: list, temperature: float | None = None):
     """Strict-JSON chat using the configured LLM provider."""
     provider = get_llm_provider()
@@ -66,6 +139,7 @@ SYSTEM_PROMPT = (
     "- Use the full story context to ensure characters, setting, and continuity remain consistent.\n"
     "- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
     "  Example format: 'Characters in this scene: [Lena, two children, a small dog].'\n"
+    "- If there is a portrait image added instead of the text format, use this prompt: 'Portrait Subject (person from image[0])', 'an elephant', 'a small dog'\n"
     "- Describe the scene as a static image — no actions, movement, or unfolding events.\n"
     "- Write in present tense, with kid-friendly, simple, and concrete language.\n"
     "- Only include characters, objects, and details that are already established or implied in the story.\n"
@@ -77,6 +151,17 @@ SYSTEM_PROMPT = (
 @retry(wait=wait_exponential(multiplier=1, min=2, max=12), stop=stop_after_attempt(3))
 def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     print(f"[DEBUG] Making LLM API call to {MODEL_NAME}...")
+
+    # Detect if portrait image is available
+    has_portrait = detect_portrait_image()
+    if has_portrait:
+        print(f"[DEBUG] Portrait image detected, using portrait-aware prompt format")
+    else:
+        print(f"[DEBUG] No portrait image detected, using standard prompt format")
+
+    # Get appropriate system prompt based on portrait availability
+    system_prompt = get_system_prompt(has_portrait)
+
     payload = {
         "constraints": {"min_secs": MIN_S, "max_secs": MAX_S},
         "words": words_payload,
@@ -94,7 +179,7 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         response_data = chat_json(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(payload)},
             ],
             temperature=None,
