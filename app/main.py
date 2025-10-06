@@ -35,7 +35,24 @@ KEY_PREFIX = os.environ.get("KEY_PREFIX", "")
 QUEUE_KEY = f"{KEY_PREFIX}{QUEUE_NAME}"
 
 MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Enhanced debugging for uploads directory creation (Render server compatible)
+print(f"[DEBUG] APP_ROOT: {APP_ROOT}", flush=True)
+print(f"[DEBUG] UPLOADS_DIR configured as: {UPLOADS_DIR}", flush=True)
+print(f"[DEBUG] UPLOADS_DIR exists before mkdir: {UPLOADS_DIR.exists()}", flush=True)
+print(f"[DEBUG] UPLOADS_DIR parent: {UPLOADS_DIR.parent}", flush=True)
+print(f"[DEBUG] UPLOADS_DIR parent exists: {UPLOADS_DIR.parent.exists()}", flush=True)
+
+try:
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"[DEBUG] UPLOADS_DIR created successfully: {UPLOADS_DIR}", flush=True)
+    print(f"[DEBUG] UPLOADS_DIR exists after mkdir: {UPLOADS_DIR.exists()}", flush=True)
+    print(f"[DEBUG] UPLOADS_DIR is writable: {UPLOADS_DIR.exists() and os.access(UPLOADS_DIR, os.W_OK)}", flush=True)
+except Exception as e:
+    print(f"[ERROR] Failed to create UPLOADS_DIR {UPLOADS_DIR}: {e}", flush=True)
+    print(f"[ERROR] Exception type: {type(e).__name__}", flush=True)
+    raise HTTPException(status_code=500, detail=f"Cannot create uploads directory: {e}")
+
 STATIC_DIR = APP_ROOT / "app" / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 

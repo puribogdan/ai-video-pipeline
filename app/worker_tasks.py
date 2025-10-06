@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from collections import deque
 import logging
+import stat
 
 from dotenv import load_dotenv
 from .email_utils import send_link_email
@@ -25,7 +26,28 @@ load_dotenv()
 APP_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SRC = APP_ROOT / "pipeline"
 MEDIA_DIR = APP_ROOT / "media"
-UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/tmp/uploads"))
+
+# Enhanced debugging for uploads directory configuration (Render server compatible)
+print(f"[worker] [DEBUG] APP_ROOT: {APP_ROOT}", flush=True)
+UPLOADS_DIR_DEFAULT = "/tmp/uploads"
+UPLOADS_DIR_ENV = os.getenv("UPLOADS_DIR")
+print(f"[worker] [DEBUG] UPLOADS_DIR from env: {UPLOADS_DIR_ENV}", flush=True)
+print(f"[worker] [DEBUG] UPLOADS_DIR default: {UPLOADS_DIR_DEFAULT}", flush=True)
+
+UPLOADS_DIR = Path(UPLOADS_DIR_ENV) if UPLOADS_DIR_ENV else Path(UPLOADS_DIR_DEFAULT)
+print(f"[worker] [DEBUG] UPLOADS_DIR configured as: {UPLOADS_DIR}", flush=True)
+print(f"[worker] [DEBUG] UPLOADS_DIR exists: {UPLOADS_DIR.exists()}", flush=True)
+print(f"[worker] [DEBUG] UPLOADS_DIR parent: {UPLOADS_DIR.parent}", flush=True)
+print(f"[worker] [DEBUG] UPLOADS_DIR parent exists: {UPLOADS_DIR.parent.exists()}", flush=True)
+
+# Try to create the directory if it doesn't exist
+try:
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"[worker] [DEBUG] UPLOADS_DIR created/verified: {UPLOADS_DIR}", flush=True)
+except Exception as e:
+    print(f"[worker] [ERROR] Failed to create UPLOADS_DIR {UPLOADS_DIR}: {e}", flush=True)
+    print(f"[worker] [ERROR] Exception type: {type(e).__name__}", flush=True)
+
 BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8000")
 
 REQUIRED_ENV = ["OPENAI_API_KEY", "REPLICATE_API_TOKEN"]
@@ -730,24 +752,55 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
         if upload_path:
             upload_path_obj = Path(upload_path)
             log(f"[DEBUG] Checking upload path: {upload_path_obj}")
+            log(f"[DEBUG] Upload path exists: {upload_path_obj.exists()}")
+            log(f"[DEBUG] Upload path is file: {upload_path_obj.is_file() if upload_path_obj.exists() else 'N/A'}")
 
-            # Check if upload path exists and is stable
+            # Enhanced debugging for file access issues
             if upload_path_obj.exists():
                 try:
+                    # Check file permissions and accessibility
+                    log(f"[DEBUG] Upload path permissions: {oct(upload_path_obj.stat().st_mode)}")
+                    log(f"[DEBUG] Upload path is readable: {os.access(upload_path_obj, os.R_OK)}")
+                    log(f"[DEBUG] Upload path is writable: {os.access(upload_path_obj, os.W_OK)}")
+
                     # Check file stability by verifying size multiple times
                     size1 = upload_path_obj.stat().st_size
+                    log(f"[DEBUG] First size check: {size1} bytes")
                     time.sleep(0.5)
                     size2 = upload_path_obj.stat().st_size
+                    log(f"[DEBUG] Second size check: {size2} bytes")
 
                     if size1 == size2 and size1 > 0:
                         log(f"[DEBUG] Audio file verified: {upload_path_obj} ({size1} bytes)")
                         audio_file_verified = True
                     else:
                         log(f"[WARNING] Audio file size unstable: {size1} -> {size2} bytes")
+
+                    # Additional verification - try to read the file
+                    try:
+                        with open(upload_path_obj, 'rb') as f:
+                            header = f.read(64)
+                            log(f"[DEBUG] Successfully read file header: {len(header)} bytes")
+                            log(f"[DEBUG] File header (first 32 bytes): {header[:32]}")
+                    except Exception as read_e:
+                        log(f"[WARNING] Cannot read file: {read_e}")
+
                 except Exception as e:
                     log(f"[WARNING] Error verifying audio file: {e}")
+                    log(f"[WARNING] Exception type: {type(e).__name__}")
             else:
                 log(f"[WARNING] Upload path does not exist: {upload_path_obj}")
+                # Check if parent directory exists
+                log(f"[DEBUG] Upload path parent: {upload_path_obj.parent}")
+                log(f"[DEBUG] Upload path parent exists: {upload_path_obj.parent.exists() if upload_path_obj.parent else 'N/A'}")
+
+                # List parent directory contents if it exists
+                if upload_path_obj.parent and upload_path_obj.parent.exists():
+                    try:
+                        parent_contents = [p.name for p in upload_path_obj.parent.iterdir()]
+                        log(f"[DEBUG] Parent directory contents: {parent_contents}")
+                    except Exception as list_e:
+                        log(f"[WARNING] Cannot list parent directory: {list_e}")
         else:
             log(f"[WARNING] No upload path provided")
 
