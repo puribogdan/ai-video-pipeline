@@ -238,6 +238,11 @@ async def submit(
 
     print(f"[DEBUG] Job enqueued successfully with ID: {rq_job.id}", flush=True)
 
+    # Store the RQ job ID mapping for status checks
+    rq_job_mapping = job_dir / ".rq_job_id"
+    rq_job_mapping.write_text(rq_job.id)
+    print(f"[DEBUG] Stored RQ job ID mapping: {job_id} -> {rq_job.id}", flush=True)
+
     return TEMPLATES.TemplateResponse("upload.html", {"request": request, "job_id": job_id})
 
 
@@ -265,8 +270,22 @@ async def status(job_id: str):
             print(f"[WARNING] Failed to read completion file for job {job_id}: {file_error}", flush=True)
 
     # If no completion file, try Redis for active jobs
+    rq_job_id = None
+
+    # First, try to get the actual RQ job ID from the mapping file
+    rq_job_mapping = job_dir / ".rq_job_id"
+    if rq_job_mapping.exists():
+        try:
+            rq_job_id = rq_job_mapping.read_text().strip()
+            print(f"[DEBUG] Found RQ job ID mapping: {job_id} -> {rq_job_id}", flush=True)
+        except Exception as e:
+            print(f"[WARNING] Failed to read RQ job ID mapping: {e}", flush=True)
+
+    # Try to fetch job using RQ job ID if available, otherwise use directory job_id
+    lookup_job_id = rq_job_id if rq_job_id else job_id
+
     try:
-        job = Job.fetch(job_id, connection=redis)
+        job = Job.fetch(lookup_job_id, connection=redis)
         meta = job.meta or {}
 
         if job.is_finished:
@@ -285,7 +304,7 @@ async def status(job_id: str):
 
     except Exception as e:
         # Job not found in Redis - this is normal for completed jobs that have been cleaned up
-        print(f"[DEBUG] Job {job_id} not found in Redis (may be completed): {str(e)}", flush=True)
+        print(f"[DEBUG] Job {lookup_job_id} not found in Redis (may be completed): {str(e)}", flush=True)
 
     # No completion file and no active job - job is likely queued or processing
     # Check if job directory has any content (indicates job was created)

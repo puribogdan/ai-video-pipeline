@@ -64,7 +64,7 @@ def cleanup_job_resources(job_dir: Path) -> None:
                             log(f"[WARNING] Force cleanup failed: {force_e}")
 
         # Clean up any remaining temp files
-        cleanup_patterns = ["*.tmp", "*.temp", "*.lock", "*.pid"]
+        cleanup_patterns = ["*.tmp", "*.temp", "*.lock", "*.pid", ".rq_job_id"]
         for pattern in cleanup_patterns:
             for f in job_dir.glob(pattern):
                 try:
