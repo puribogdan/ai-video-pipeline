@@ -1,12 +1,15 @@
 # generate_images_flux_schnell.py
 # Portrait-aware minimal pipeline with prompt logging.
 # - If PORTRAIT_PATH is set and exists:
-#     • Scene 1 = EDIT using [portrait]
-#     • Scene 2+ = EDIT using [scene_001, previous] (no portrait)
+#     • Preprocess once: portrait_cutout = uploaded portrait with background removed (transparent PNG).
+#     • Scene 1 = EDIT using [portrait_cutout]
+#     • Scene 2 = EDIT using [portrait_cutout, scene_001]
+#     • Scene 3+ = EDIT using [portrait_cutout, previous]
+#     • Add the "portrait identity" prompt block to every scene (identity = image[0]; single instance; always included; can be protagonist unless the main subject is non-human, then supporting).
 # - Else (no portrait):
 #     • Scene 1 = T2I
 #     • Scene 2 = EDIT using [scene_001]
-#     • Scene 3+ = EDIT using [scene_001, previous]
+#     • Scene 3+ = EDIT using [previous]
 # - Only the *style* line is variable (chosen by user). Everything else in prompts stays the same.
 # - Saves native PNGs, logs prompts to scenes/prompt.json
 
@@ -340,9 +343,9 @@ def main():
 
     print("🖼️  model=google/nano-banana")
     if portrait_path:
-        print("   strategy: scene_001 = EDIT [portrait], scene_002+ = EDIT [scene_001, previous] (no portrait)")
+        print("   strategy: scene_001 = EDIT [portrait_cutout], scene_002 = EDIT [portrait_cutout, scene_001], scene_003+ = EDIT [portrait_cutout, previous] (portrait identity prompt in all scenes)")
     else:
-        print("   strategy: scene_001 = T2I, scene_002 = EDIT [scene_001], scene_003+ = EDIT [scene_001, previous]")
+        print("   strategy: scene_001 = T2I, scene_002 = EDIT [scene_001], scene_003+ = EDIT [previous]")
     print(f"   frames: {len(scenes)} (limit={'all' if args.limit is None else args.limit})")
 
     manifest: Dict[str, Dict[str, Any]] = {}
@@ -364,21 +367,20 @@ def main():
 
         try:
             if portrait_path:
-                # Only scene 1 uses portrait, subsequent scenes use previous scene references only
+                # Use portrait_cutout for all scenes when portrait is present
+                if ref_png is None or not ref_png.exists():
+                    raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
                 if i == 1:
                     refs = [portrait_path]
-                    prompt = build_scene1_prompt(desc=desc, style_line=style_line, has_portrait=True)
+                elif i == 2:
+                    refs = [portrait_path, ref_png]
                 else:
-                    if ref_png is None or not ref_png.exists():
-                        raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
-                    if i == 2:
-                        refs = [ref_png]
-                    else:
-                        if prev_png is None or not prev_png.exists():
-                            raise RuntimeError(f"Missing references for scene {sid}.")
-                        refs = [ref_png, prev_png]
-                    prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=False)
+                    if prev_png is None or not prev_png.exists():
+                        raise RuntimeError(f"Missing references for scene {sid}.")
+                    refs = [portrait_path, prev_png]
 
+                # Use portrait identity prompt block for every scene
+                prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=True)
                 out = run_nano_banana_edit(prompt, refs)
                 mode = "edit"
                 prompt_log[sid] = {
