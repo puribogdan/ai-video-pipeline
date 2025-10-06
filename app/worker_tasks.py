@@ -479,18 +479,6 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
             portrait_extensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp']
             portrait_uploaded = False
 
-            # Upload original portrait image
-            original_portrait_path = job_dir / "pipeline" / "scenes" / "portrait_ref_original.png"
-            if original_portrait_path.exists():
-                portrait_key = f"exports/{job_id}/portrait_ref_original.png"
-                s3.upload_file(
-                    str(original_portrait_path),
-                    bucket_name,
-                    portrait_key,
-                    ExtraArgs={'ContentType': 'image/png'}
-                )
-                log(f"Uploaded original portrait image to: {portrait_key}")
-                portrait_uploaded = True
 
             # Upload background-removed portrait image
             no_bg_portrait_path = job_dir / "pipeline" / "scenes" / "portrait_ref_no_bg.png"
