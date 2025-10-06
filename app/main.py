@@ -239,7 +239,7 @@ async def submit(
     print(f"[DEBUG] Job enqueued successfully with ID: {rq_job.id}", flush=True)
 
     # Store the RQ job ID mapping for status checks
-    rq_job_mapping = job_dir / ".rq_job_id"
+    rq_job_mapping = user_dir / ".rq_job_id"
     rq_job_mapping.write_text(rq_job.id)
     print(f"[DEBUG] Stored RQ job ID mapping: {job_id} -> {rq_job.id}", flush=True)
 
