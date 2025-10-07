@@ -33,7 +33,7 @@ def write_scenes(scenes: List[Dict[str, Any]]):
     print(f"✅ Wrote {len(scenes)} scenes to: {OUT_PATH}")
 
 # ---------- LLM Provider ----------
-MODEL_NAME = "gpt-5-2025-08-07"
+# Model selection is now handled by the provider
 
 def detect_portrait_image() -> bool:
     """Check if a portrait image is available for use in prompts."""
@@ -164,7 +164,7 @@ SYSTEM_PROMPT = (
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=12), stop=stop_after_attempt(3))
 def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print(f"[DEBUG] Making LLM API call to {MODEL_NAME}...")
+    print("[DEBUG] Making LLM API call...")
 
     # Detect if portrait image is available
     has_portrait = detect_portrait_image()
@@ -191,7 +191,7 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     response_data = None
     try:
         response_data = chat_json(
-            model=MODEL_NAME,
+            model="default",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(payload)},
@@ -287,7 +287,7 @@ def main():
         for i, w in enumerate(words)
     ]
 
-    print(f"[DEBUG] Sending {len(words_payload)} word-level subtitles to {MODEL_NAME} to choose scene splits (5–10s preferred)…")
+    print(f"[DEBUG] Sending {len(words_payload)} word-level subtitles to LLM provider to choose scene splits (5–10s preferred)…")
     try:
         plan = call_llm_api(words_payload)
         print(f"[DEBUG] LLM returned {len(plan)} scene plans")

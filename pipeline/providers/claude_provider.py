@@ -9,7 +9,7 @@ class ClaudeProvider(LLMProvider):
     
     def __init__(self, api_key: str):
         self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = "claude-opus-4-1-20250805"
+        self.model = "claude-sonnet-4-5-20250929"
     
     def chat_json(self, messages: List[Dict], **kwargs) -> Dict:
         """
@@ -37,7 +37,7 @@ class ClaudeProvider(LLMProvider):
         
         # Prepare request parameters
         request_params = {
-            "model": self.model,
+            "model": kwargs.get("model", self.model),
             "messages": claude_messages,
             "max_tokens": kwargs.get("max_tokens", 4096),
         }

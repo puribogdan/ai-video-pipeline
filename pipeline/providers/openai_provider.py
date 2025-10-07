@@ -24,7 +24,7 @@ class OpenAIProvider(LLMProvider):
         """
         # Prepare request parameters
         request_params = {
-            "model": self.model,
+            "model": kwargs.get("model", self.model),
             "messages": messages,
             "response_format": {"type": "json_object"}
         }
