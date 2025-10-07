@@ -122,12 +122,12 @@ def get_system_prompt(has_portrait: bool = False) -> str:
 
         )
 
-def chat_json(model: str, messages: list, temperature: float | None = None):
+def chat_json(messages: list, temperature: float | None = None, **kwargs):
     """Strict-JSON chat using the configured LLM provider."""
     provider = get_llm_provider()
-    kwargs = {"model": model, "messages": messages}
     if temperature is not None:
         kwargs["temperature"] = temperature
+    kwargs["messages"] = messages
     return provider.chat_json(**kwargs)
 
 SYSTEM_PROMPT = (
@@ -191,7 +191,6 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     response_data = None
     try:
         response_data = chat_json(
-            model="default",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(payload)},
