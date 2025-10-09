@@ -172,12 +172,23 @@ def sec_len(s: Dict[str, Any]) -> float:
 def enhance_scene_descriptions_with_claude(scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Send all scene descriptions to Claude with the specified prompt and update them with enhanced versions.
+    Now includes the full narration text as context for better story understanding.
     """
     if not scenes:
         print("[DEBUG] No scenes provided for enhancement")
         return scenes
 
     print(f"[DEBUG] Starting enhancement for {len(scenes)} scenes")
+
+    # Collect full narration text from all scenes for story context
+    full_narration_parts = []
+    for i, scene in enumerate(scenes):
+        narration = scene.get("narration", "")
+        if narration:
+            full_narration_parts.append(f"Scene {i}: {narration}")
+    
+    full_narration_text = "\n".join(full_narration_parts)
+    print(f"[DEBUG] Full narration text length: {len(full_narration_text)} characters")
 
     # Prepare the scene descriptions for Claude
     scene_descriptions = []
@@ -191,26 +202,32 @@ def enhance_scene_descriptions_with_claude(scenes: List[Dict[str, Any]]) -> List
         })
         print(f"[DEBUG] Scene {i}: '{original_desc[:50]}{'...' if len(original_desc) > 50 else ''}' | Narration: '{narration[:50]}{'...' if len(narration) > 50 else ''}'")
 
-    # Create the prompt with all scene descriptions - just the scenes, no duplicate instructions
+    # Create the prompt with all scene descriptions
     scene_prompts = []
     for i, scene in enumerate(scene_descriptions):
         scene_prompts.append(f"Scene {i}: {scene['original_description']}")
 
     # Join all scene prompts
-    full_prompt = "\n".join(scene_prompts)
-    print(f"[DEBUG] Full prompt length: {len(full_prompt)} characters")
+    scenes_text = "\n".join(scene_prompts)
+    print(f"[DEBUG] Scenes text length: {len(scenes_text)} characters")
 
     prompt = f"""
-Rewrite the following scene descriptions into concise prompts for an AI image-to-video generator. Each rewritten prompt should:
+You are enhancing scene descriptions for video generation. Use the full story context below to understand the narrative flow and make informed decisions about what actions the characters should perform in each scene.
 
-- Show only one simple action or state per clip.
-- Keep characters’ proportions, style, and appearance consistent.
+FULL STORY NARRATION:
+{full_narration_text}
+
+Now, rewrite the following scene descriptions into concise prompts for an AI image-to-video generator. Use the full story context and scene description when creating the enhanced scenes and choosing what action should the characters do. Each rewritten prompt should:
+
+- Show only one action or state per clip.
+- Keep characters' proportions, style, and appearance consistent.
 - Ensure characters and objects connect naturally with the environment.
 - Add only gentle, smooth motion (e.g., small gestures, breeze, slow camera pan).
 - Use short, clear language for a 5–10 second clip.
+- Consider the overall story context when deciding character actions and scene dynamics.
 
 Scene descriptions to rewrite:
-{full_prompt}
+{scenes_text}
 
 Return a JSON object with the rewritten prompts in this exact format:
 {{
