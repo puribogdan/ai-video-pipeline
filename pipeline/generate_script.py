@@ -70,18 +70,36 @@ def get_system_prompt(has_portrait: bool = False) -> str:
             "- Consider: dramatic pauses, important descriptions, character emotions, scene changes\n"
             "- Aim for 5-10 seconds per scene, but prioritize what serves the story best\n\n"
             "Notes for scene_description image generation:\n"
-            "- Use the full story context to ensure characters, setting, and continuity remain consistent.\n"
-            "- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
-            "- Always describe each character SPECIFICALLY, not vaguely. Avoid generic terms like 'a person', 'friend', or 'someone'. Instead, specify clear visible traits such as gender, age, species, or role.\n"
-            "- Start each scene with this exact line:\n"
-            "  The characters in the image are: ...\n"
-            "  Then list all characters with short specific descriptions.\n"
-            "  Example: 'Portrait Subject (person from image[0])', 'a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'.\n"
-            "- If the story mentions a new person or animal, infer a simple, concrete descriptor (for example, if 'a friend' is mentioned, decide if it’s 'a girl', 'a boy', or 'a man' based on context).\n"
-            "- Describe the scene as a static image — no actions, movement, or unfolding events.\n"
-            "- Write in present tense, with kid-friendly, simple, and concrete language.\n"
-            "- Only include characters, objects, and details that are already established or implied in the story.\n"
-            "- Focus on visual details: appearance, colors, environment, mood, and arrangement in the frame.\n"
+"- Always use the full story and narration context to ensure continuity of characters, setting, and mood across scenes.\n"
+
+"- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
+"  Start every scene with this exact line:\n"
+"  The characters in the image are: (EXAMPLE) 'Portrait Subject (person from image[0])', 'a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'.\n"
+
+"- After listing the characters, describe their appearance in specific, concrete terms (species, colors, clothing, or key traits).\n"
+"  Avoid generic terms like 'a person' or 'someone.'\n"
+
+"- Describe the scene as a static image from a cinematic moment — as if frozen mid-action.\n"
+"  You can capture implied motion or emotion (for example: 'mid-air above the lava', 'leaning toward each other', or 'looking up at the sky') but do NOT describe continuous movement or actions over time.\n"
+
+"- Ensure the visual composition matches the story moment.\n"
+"  If the narration implies action (like jumping, falling, running, or flying), describe what that would look like as a single frozen moment, not as an ongoing event.\n"
+
+"- Include sensory and environmental details that make the image vivid and clear (lighting, mood, atmosphere, background elements like smoke, reflections, heat waves, or glowing light).\n"
+
+"- Use simple, concrete, and kid-friendly language that focuses only on what can be seen.\n"
+
+"- Only include characters, objects, or settings that are already established in the story.\n"
+"  If new characters appear, infer a simple, clear visual description that fits naturally.\n"
+
+"- Maintain continuity of character appearance across scenes (same clothing, colors, or physical traits).\n"
+
+"Example of tone and structure:\n"
+
+"Narration: 'They jumped into it. They had fireproof jackets.'\n"
+
+"Scene description:\n"
+"The characters in the image are: a white duck with a yellow beak and orange feet wearing a shiny silver fireproof jacket, and a brown chicken with a red comb wearing a shiny silver fireproof jacket. Both birds are mid-air inside the glowing orange crater of a volcano, surrounded by rising sparks and shimmering heat waves. Their metallic jackets gleam against the fiery background as they fall downward bravely together. The inside of the volcano glows bright orange and red, with molten rock swirling below and smoke curling upward through the air.\n"
 
 
         )
@@ -106,21 +124,42 @@ def get_system_prompt(has_portrait: bool = False) -> str:
             "- Consider: dramatic pauses, important descriptions, character emotions, scene changes\n"
             "- Aim for 5-10 seconds per scene, but prioritize what serves the story best\n\n"
             "Notes for scene_description image generation:\n"
-            "- Use the full story context to ensure characters, setting, and continuity remain consistent.\n"
-            "- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
-            "- Always describe each character SPECIFICALLY, not vaguely. Avoid generic terms like 'a person', 'friend', or 'someone'. Instead, specify clear visible traits such as gender, age, species, or role.\n"
-            "- Start each scene with this exact line:\n"
-            "  The characters in the image are: ...\n"
-            "  Then list all characters with short specific descriptions.\n"
-            "  Example: ''a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'.\n"
-            "- If the story mentions a new person or animal, infer a simple, concrete descriptor (for example, if 'a friend' is mentioned, decide if it’s 'a girl', 'a boy', or 'a man' based on context).\n"
-            "- Describe the scene as a static image — no actions, movement, or unfolding events.\n"
-            "- Write in present tense, with kid-friendly, simple, and concrete language.\n"
-            "- Only include characters, objects, and details that are already established or implied in the story.\n"
-            "- Focus on visual details: appearance, colors, environment, mood, and arrangement in the frame.\n"
+"- Always use the full story and narration context to ensure continuity of characters, setting, and mood across scenes.\n"
+
+"- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
+"  Start every scene with this exact line:\n"
+"  The characters in the image are: (EXAMPLE) 'a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'.\n\n"
+
+"- After listing the characters, describe their appearance in specific, concrete terms (species, colors, clothing, or key traits).\n"
+"  Avoid generic terms like 'a person' or 'someone.'\n"
+
+"- Describe the scene as a static image from a cinematic moment — as if frozen mid-action.\n"
+"  You can capture implied motion or emotion (for example: 'mid-air above the lava', 'leaning toward each other', or 'looking up at the sky') but do NOT describe continuous movement or actions over time.\n"
+
+"- Ensure the visual composition matches the story moment.\n"
+"  If the narration implies action (like jumping, falling, running, or flying), describe what that would look like as a single frozen moment, not as an ongoing event.\n"
+
+"- Include sensory and environmental details that make the image vivid and clear (lighting, mood, atmosphere, background elements like smoke, reflections, heat waves, or glowing light).\n"
+
+"- Use simple, concrete, and kid-friendly language that focuses only on what can be seen.\n"
+
+"- Only include characters, objects, or settings that are already established in the story.\n"
+"  If new characters appear, infer a simple, clear visual description that fits naturally.\n"
+
+"- Maintain continuity of character appearance across scenes (same clothing, colors, or physical traits).\n"
+
+"Example of tone and structure:\n"
+
+"Narration: 'They jumped into it. They had fireproof jackets.'\n"
+
+"Scene description:\n"
+"The characters in the image are: a white duck with a yellow beak and orange feet wearing a shiny silver fireproof jacket, and a brown chicken with a red comb wearing a shiny silver fireproof jacket. Both birds are mid-air inside the glowing orange crater of a volcano, surrounded by rising sparks and shimmering heat waves. Their metallic jackets gleam against the fiery background as they fall downward bravely together. The inside of the volcano glows bright orange and red, with molten rock swirling below and smoke curling upward through the air.\n"
+
 
 
         )
+
+        
 
 def chat_json(messages: list, temperature: float | None = None, **kwargs):
     """Strict-JSON chat using the configured LLM provider."""
