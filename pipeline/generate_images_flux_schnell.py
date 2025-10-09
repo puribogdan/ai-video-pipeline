@@ -410,14 +410,16 @@ def main():
                         "style_line": style_line,
                     }
                 else:
+                    # Scene 2: Edit using scene_001
                     if i == 2:
                         if ref_png is None or not ref_png.exists():
                             raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
                         refs = [ref_png]
+                    # Scene 3+: Edit using only the previous scene (not scene_001)
                     else:
-                        if ref_png is None or not ref_png.exists() or prev_png is None or not prev_png.exists():
-                            raise RuntimeError(f"Missing references for scene {sid}.")
-                        refs = [ref_png, prev_png]
+                        if prev_png is None or not prev_png.exists():
+                            raise RuntimeError(f"Missing previous scene for scene {sid}.")
+                        refs = [prev_png]
 
                     prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=False)
                     out = run_nano_banana_edit(prompt, refs)
