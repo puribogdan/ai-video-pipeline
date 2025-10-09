@@ -293,10 +293,9 @@ async def submit(
     
     print(f"[DEBUG] File ready for worker: {audio_path} ({final_size} bytes)", flush=True)
 
-    # Enqueue job with a small delay to allow filesystem operations to complete
-    # This helps prevent race conditions in containerized environments
-    rq_job = queue.enqueue_in(
-        timedelta(seconds=2),  # Delay job execution by 2 seconds
+    # Enqueue job immediately - file verification above ensures it's ready
+    # The worker retry logic will handle any remaining race conditions
+    rq_job = queue.enqueue(
         process_job,           # Function to execute
         job_id,                # First argument to process_job
         email,                 # Second argument to process_job
