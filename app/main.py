@@ -244,12 +244,15 @@ async def submit(
 
     print(f"[DEBUG] ================================", flush=True)
 
-    # Force filesystem sync to ensure file is visible to worker
+    # Force filesystem sync to ensure file is visible to worker (Unix-like systems only)
     try:
-        os.sync()
-        print(f"[DEBUG] Filesystem sync completed", flush=True)
+        if hasattr(os, 'sync'):
+            os.sync()
+            print(f"[DEBUG] Filesystem sync completed", flush=True)
+        else:
+            print(f"[DEBUG] os.sync() not available on this platform (Windows), skipping", flush=True)
     except Exception as e:
-        print(f"[WARNING] Filesystem sync failed (may not be supported): {e}", flush=True)
+        print(f"[WARNING] Filesystem sync failed: {e}", flush=True)
 
     # Final verification before enqueuing - ensure file is stable and readable
     print(f"[DEBUG] Final verification before enqueuing job...", flush=True)
@@ -292,16 +295,15 @@ async def submit(
 
     # Enqueue job with a small delay to allow filesystem operations to complete
     # This helps prevent race conditions in containerized environments
-    rq_job = queue.enqueue(
-        process_job,      # Function to execute
-        job_id,           # First argument to process_job
-        email,            # Second argument to process_job
-        str(audio_path),  # Third argument to process_job
-        style,            # Fourth argument to process_job
+    rq_job = queue.enqueue_in(
+        timedelta(seconds=2),  # Delay job execution by 2 seconds
+        process_job,           # Function to execute
+        job_id,                # First argument to process_job
+        email,                 # Second argument to process_job
+        str(audio_path),       # Third argument to process_job
+        style,                 # Fourth argument to process_job
         retry=Retry(max=3, interval=[15, 30, 60]),
         job_timeout=5400,
-        at_front=False,
-        delay=timedelta(seconds=2),  # Add 2-second delay to prevent race condition
     )
 
     print(f"[DEBUG] Job enqueued successfully with ID: {rq_job.id}", flush=True)
