@@ -759,53 +759,80 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             log(f"[ERROR] Failed to create job directory {job_dir}: {e}")
             raise RuntimeError(f"Failed to create job directory: {e}")
 
-        # First, try the provided upload path if it exists
-        if upload_path:
-            upload_path_obj = Path(upload_path)
-            log(f"[DEBUG] Checking provided upload path: {upload_path_obj}")
+        # Implement retry logic with exponential backoff for file access
+        # This handles race conditions where file upload completes after job starts
+        max_file_wait_retries = 10
+        retry_delay = 0.5  # Start with 0.5 seconds
+        
+        for retry_attempt in range(max_file_wait_retries):
+            # First, try the provided upload path if it exists
+            if upload_path:
+                upload_path_obj = Path(upload_path)
+                log(f"[DEBUG] Checking provided upload path (attempt {retry_attempt + 1}/{max_file_wait_retries}): {upload_path_obj}")
 
-            if upload_path_obj.exists() and upload_path_obj.is_file():
-                try:
-                    # Verify it's actually an audio file
-                    size = upload_path_obj.stat().st_size
-                    if size > 0:
-                        # Check if it's an audio file by extension or mime type
-                        mt, _ = mimetypes.guess_type(str(upload_path_obj))
-                        is_audio = (upload_path_obj.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma') or
-                                   (mt and mt.startswith('audio/')))
+                if upload_path_obj.exists() and upload_path_obj.is_file():
+                    try:
+                        # Verify it's actually an audio file
+                        size = upload_path_obj.stat().st_size
+                        if size > 0:
+                            # Check if it's an audio file by extension or mime type
+                            mt, _ = mimetypes.guess_type(str(upload_path_obj))
+                            is_audio = (upload_path_obj.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma') or
+                                       (mt and mt.startswith('audio/')))
 
-                        if is_audio:
-                            log(f"[INFO] Using provided audio file: {upload_path_obj} ({size} bytes)")
-                            final_audio_path = upload_path_obj
-                            audio_file_verified = True
+                            if is_audio:
+                                # Verify file stability (not still being written)
+                                time.sleep(0.3)
+                                size2 = upload_path_obj.stat().st_size
+                                if size == size2:
+                                    log(f"[INFO] Using provided audio file: {upload_path_obj} ({size} bytes)")
+                                    final_audio_path = upload_path_obj
+                                    audio_file_verified = True
+                                    break
+                                else:
+                                    log(f"[DEBUG] File size changed ({size} -> {size2}), still being written...")
+                            else:
+                                log(f"[WARNING] Provided file is not an audio file: {upload_path_obj} (mime: {mt})")
                         else:
-                            log(f"[WARNING] Provided file is not an audio file: {upload_path_obj} (mime: {mt})")
-                    else:
-                        log(f"[WARNING] Provided file is empty: {upload_path_obj}")
-                except Exception as e:
-                    log(f"[WARNING] Error checking provided upload path: {e}")
-            else:
-                log(f"[DEBUG] Provided upload path does not exist or is not a file: {upload_path_obj}")
+                            log(f"[DEBUG] Provided file is empty (attempt {retry_attempt + 1})")
+                    except Exception as e:
+                        log(f"[DEBUG] Error checking provided upload path (attempt {retry_attempt + 1}): {e}")
+                else:
+                    log(f"[DEBUG] Provided upload path does not exist or is not a file (attempt {retry_attempt + 1})")
 
-        # Enhanced: If upload path didn't work, look for ANY audio file in job directory
-        # This handles cases where filename doesn't match hardcoded expectations
-        if not audio_file_verified:
-            log(f"[DEBUG] Upload path didn't work, searching for any audio file in job directory...")
+            # If upload path didn't work, look for ANY audio file in job directory
+            if not audio_file_verified:
+                log(f"[DEBUG] Searching for any audio file in job directory (attempt {retry_attempt + 1})...")
+                found_audio = _find_any_audio(job_dir)
 
-        # Enhanced: If upload path didn't work, look for ANY audio file in job directory
-        # This handles cases where filename doesn't match hardcoded expectations
-        if not audio_file_verified:
-            log(f"[DEBUG] Upload path didn't work, searching for any audio file in job directory...")
-            found_audio = _find_any_audio(job_dir)
-
-            if found_audio:
-                log(f"[INFO] Found audio file in job directory: {found_audio.name}")
-                log(f"[DEBUG] Audio file size: {found_audio.stat().st_size} bytes")
-                log(f"[DEBUG] Audio file mime type: {mimetypes.guess_type(str(found_audio))}")
-                final_audio_path = found_audio
-                audio_file_verified = True
-            else:
-                log(f"[WARNING] No audio files found in job directory")
+                if found_audio:
+                    try:
+                        size1 = found_audio.stat().st_size
+                        if size1 > 0:
+                            # Verify file stability
+                            time.sleep(0.3)
+                            size2 = found_audio.stat().st_size
+                            if size1 == size2:
+                                log(f"[INFO] Found stable audio file in job directory: {found_audio.name} ({size1} bytes)")
+                                final_audio_path = found_audio
+                                audio_file_verified = True
+                                break
+                            else:
+                                log(f"[DEBUG] Audio file size changed ({size1} -> {size2}), still being written...")
+                    except Exception as e:
+                        log(f"[DEBUG] Error checking found audio file: {e}")
+                else:
+                    log(f"[DEBUG] No audio files found in job directory (attempt {retry_attempt + 1})")
+            
+            # If file found and verified, break out of retry loop
+            if audio_file_verified:
+                break
+            
+            # Wait before next retry with exponential backoff
+            if retry_attempt < max_file_wait_retries - 1:
+                wait_time = retry_delay * (2 ** retry_attempt)
+                log(f"[DEBUG] Waiting {wait_time:.1f}s before retry {retry_attempt + 2}/{max_file_wait_retries}...")
+                time.sleep(wait_time)
 
         # Final verification - ensure we have a valid audio file
         if audio_file_verified and final_audio_path:

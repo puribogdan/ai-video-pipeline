@@ -6,6 +6,7 @@ import subprocess
 import shutil
 from pathlib import Path
 import json
+from datetime import timedelta
 from fastapi import Header, Query, HTTPException
 from fastapi.responses import FileResponse
 
@@ -243,6 +244,54 @@ async def submit(
 
     print(f"[DEBUG] ================================", flush=True)
 
+    # Force filesystem sync to ensure file is visible to worker
+    try:
+        os.sync()
+        print(f"[DEBUG] Filesystem sync completed", flush=True)
+    except Exception as e:
+        print(f"[WARNING] Filesystem sync failed (may not be supported): {e}", flush=True)
+
+    # Final verification before enqueuing - ensure file is stable and readable
+    print(f"[DEBUG] Final verification before enqueuing job...", flush=True)
+    verification_start = time.time()
+    max_verification_time = 5  # seconds
+    
+    while time.time() - verification_start < max_verification_time:
+        try:
+            if audio_path.exists() and audio_path.is_file():
+                current_size = audio_path.stat().st_size
+                # Verify file is readable
+                with open(audio_path, 'rb') as f:
+                    f.read(1024)  # Read first 1KB to verify accessibility
+                
+                # Check size stability
+                time.sleep(0.2)
+                stable_size = audio_path.stat().st_size
+                
+                if current_size == stable_size and current_size > 0:
+                    print(f"[DEBUG] File verification successful: {audio_path} ({current_size} bytes)", flush=True)
+                    break
+                else:
+                    print(f"[DEBUG] File size changed ({current_size} -> {stable_size}), waiting...", flush=True)
+            else:
+                print(f"[DEBUG] File not yet accessible, waiting...", flush=True)
+        except Exception as e:
+            print(f"[DEBUG] Verification attempt failed: {e}", flush=True)
+        
+        time.sleep(0.1)
+    
+    # Final check
+    if not audio_path.exists():
+        raise HTTPException(status_code=500, detail=f"File verification failed: {audio_path} does not exist")
+    
+    final_size = audio_path.stat().st_size
+    if final_size == 0:
+        raise HTTPException(status_code=500, detail=f"File verification failed: {audio_path} is empty")
+    
+    print(f"[DEBUG] File ready for worker: {audio_path} ({final_size} bytes)", flush=True)
+
+    # Enqueue job with a small delay to allow filesystem operations to complete
+    # This helps prevent race conditions in containerized environments
     rq_job = queue.enqueue(
         process_job,      # Function to execute
         job_id,           # First argument to process_job
@@ -251,6 +300,8 @@ async def submit(
         style,            # Fourth argument to process_job
         retry=Retry(max=3, interval=[15, 30, 60]),
         job_timeout=5400,
+        at_front=False,
+        delay=timedelta(seconds=2),  # Add 2-second delay to prevent race condition
     )
 
     print(f"[DEBUG] Job enqueued successfully with ID: {rq_job.id}", flush=True)
