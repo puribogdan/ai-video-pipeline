@@ -75,6 +75,10 @@ def get_system_prompt(has_portrait: bool = False) -> str:
 "- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
 "  Start every scene with this exact line:\n"
 "  The characters in the image are: (EXAMPLE) 'Portrait Subject (person from image[0])', 'a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'.\n"
+"The character from image[0] must always appear in the story with the same species and appearance as in the uploaded image."
+"Do not transform or replace them."
+"If the story’s main subject matches their species, make them the protagonist."
+"If the main subject is different, include them naturally as a secondary character in the scene."
 
 "- After listing the characters, describe their appearance in specific, concrete terms (species, colors, clothing, or key traits).\n"
 "  Avoid generic terms like 'a person' or 'someone.'\n"
