@@ -13,6 +13,11 @@ Pipeline (no knobs needed):
        • Loudness normalize to ~ -16 LUFS
        • Soft limiter for safety peaks
 
+Enhanced with progressive processing for large files:
+  - Automatically detects file size and uses appropriate processing method
+  - Streaming processing for files >100MB to avoid memory issues
+  - Maintains backward compatibility with existing functionality
+
 Default IO:
   input  : ./audio_input/input.mp3
   output : ./audio_input/input_trimmed.mp3
@@ -21,6 +26,10 @@ Default IO:
 from __future__ import annotations
 from pathlib import Path
 import argparse
+import asyncio
+import logging
+import os
+import psutil
 from typing import Tuple
 
 import io
@@ -35,6 +44,19 @@ import webrtcvad
 
 from pydub import AudioSegment, effects
 from pydub.silence import detect_silence
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Import progressive processing modules
+try:
+    from .streaming_audio_processor import StreamingAudioProcessor, ProcessingConfig, ProcessingMode, ProcessingProgress
+    from .progressive_silence_trimmer import ProgressiveSilenceTrimmer, TrimmingConfig, TrimmingProgress
+    PROGRESSIVE_AVAILABLE = True
+except ImportError:
+    PROGRESSIVE_AVAILABLE = False
+    logger.warning("Progressive processing modules not available, falling back to traditional processing")
 
 # ---------- Paths & defaults ----------
 ROOT = Path(__file__).parent
@@ -362,6 +384,185 @@ def trim_only_oversized_silences_keep_head(
     return out, trimmed_count, removed_ms_total / 1000.0
 
 # =============================================================================
+# Progressive Processing Functions
+# =============================================================================
+def should_use_progressive_processing(file_path: Path) -> bool:
+    """
+    Determine if progressive processing should be used based on file size.
+
+    Args:
+        file_path: Path to the audio file
+
+    Returns:
+        True if progressive processing should be used
+    """
+    if not PROGRESSIVE_AVAILABLE:
+        return False
+
+    try:
+        file_size_bytes = file_path.stat().st_size
+        file_size_mb = file_size_bytes / (1024 * 1024)
+
+        # Use progressive processing for files > 100MB
+        # This threshold can be adjusted based on available memory
+        return file_size_mb > 100
+
+    except Exception as e:
+        logger.warning(f"Could not determine file size for {file_path}: {e}")
+        return False
+
+
+def get_available_memory_mb() -> float:
+    """Get available memory in MB."""
+    try:
+        return psutil.virtual_memory().available / (1024 * 1024)
+    except Exception:
+        # Fallback: assume 2GB available
+        return 2048.0
+
+
+async def process_with_progressive_trimming(
+    input_path: Path,
+    output_path: Path,
+    args: argparse.Namespace
+) -> Tuple[AudioSegment, int, float]:
+    """
+    Process audio using progressive trimming and enhancement.
+
+    Args:
+        input_path: Input audio file path
+        output_path: Output audio file path
+        args: Command line arguments
+
+    Returns:
+        Tuple of (processed_audio, trimmed_count, seconds_removed)
+    """
+    logger.info(f"Using progressive processing for large file: {input_path}")
+
+    # Step 1: Progressive silence trimming
+    trimming_config = TrimmingConfig(
+        min_silence_duration_ms=args.min_silence_ms,
+        silence_threshold_db=args.absolute_thresh_dbfs or (args.threshold_offset_db * -1),
+        seek_step_ms=args.seek_step_ms,
+        keep_head_silence_ms=args.keep_head_ms,
+        max_silence_to_keep_ms=args.target_silence_ms,
+        crossfade_ms=args.crossfade_ms
+    )
+
+    trimmer = ProgressiveSilenceTrimmer(trimming_config)
+
+    def trimming_progress_callback(progress: TrimmingProgress):
+        """Report trimming progress."""
+        logger.info(f"Trimming progress: {progress.processed_chunks}/{progress.total_chunks} chunks, "
+                  f"found {progress.silence_segments_found} silence segments")
+
+    # Perform progressive trimming
+    trimming_result = await trimmer.trim_silence_streaming(
+        input_path,
+        output_path,
+        trimming_progress_callback
+    )
+
+    # Load the trimmed audio for enhancement
+    trimmed_audio = AudioSegment.from_file(output_path)
+
+    # Step 2: Apply audio enhancement using streaming processor
+    if not args.no_enhance:
+        # Create temporary file for enhanced audio
+        enhanced_path = output_path.with_name(output_path.stem + "_enhanced" + output_path.suffix)
+
+        processing_config = ProcessingConfig(
+            chunk_size_mb=min(32.0, get_available_memory_mb() * 0.25 / 3),  # Conservative chunk size
+            max_memory_gb=get_available_memory_mb() / 1024,
+            enable_silence_trimming=False,  # Already trimmed
+            enable_noise_reduction=True,
+            enable_speech_enhancement=True,
+            enable_loudness_normalization=True
+        )
+
+        processor = StreamingAudioProcessor(processing_config)
+
+        def processing_progress_callback(progress: ProcessingProgress):
+            """Report processing progress."""
+            logger.info(f"Enhancement progress: {progress.processed_chunks}/{progress.total_chunks} chunks, "
+                      f"memory: {progress.memory_usage_mb:.1f}MB")
+
+        # Process with streaming enhancement
+        enhancement_result = await processor.process_audio_file(
+            output_path,
+            enhanced_path,
+            processing_progress_callback,
+            mode=ProcessingMode.STREAMING
+        )
+
+        # Load enhanced audio
+        trimmed_audio = AudioSegment.from_file(enhanced_path)
+
+        # Clean up temporary enhanced file
+        try:
+            enhanced_path.unlink()
+        except Exception:
+            pass
+
+    # Calculate trimming statistics
+    original_duration = len(AudioSegment.from_file(input_path))
+    trimmed_duration = len(trimmed_audio)
+    seconds_removed = (original_duration - trimmed_duration) / 1000.0
+
+    # For trimmed_count, we'll use the number of silence segments found
+    trimmed_count = trimming_result.get('silence_segments_found', 0)
+
+    return trimmed_audio, trimmed_count, seconds_removed
+
+
+def process_with_traditional_method(
+    input_path: Path,
+    args: argparse.Namespace
+) -> Tuple[AudioSegment, int, float]:
+    """
+    Process audio using traditional in-memory method.
+
+    Args:
+        input_path: Input audio file path
+        args: Command line arguments
+
+    Returns:
+        Tuple of (processed_audio, trimmed_count, seconds_removed)
+    """
+    logger.info(f"Using traditional processing for smaller file: {input_path}")
+
+    # Load audio file
+    audio = AudioSegment.from_file(input_path)
+    print(f"[LOG] Loaded audio: duration {len(audio)/1000:.2f}s, format {audio.frame_rate}Hz {audio.channels}ch {audio.sample_width*8}bit")
+
+    # Apply silence trimming
+    processed, n_trimmed, seconds_removed = trim_only_oversized_silences_keep_head(
+        audio,
+        target_silence_ms=args.target_silence_ms,
+        keep_head_ms=args.keep_head_ms,
+        min_silence_ms=args.min_silence_ms,
+        threshold_offset_db=args.threshold_offset_db,
+        absolute_thresh_dbfs=args.absolute_thresh_dbfs,
+        seek_step_ms=args.seek_step_ms,
+        crossfade_ms=args.crossfade_ms,
+    )
+
+    # Apply enhancement if requested
+    if args.no_enhance:
+        out_audio = effects.normalize(processed)  # quick peak normalize
+        enh_note = "disabled (peak normalize only)"
+    else:
+        y, sr, ch = audiosegment_to_float_np(processed)
+        if y.ndim == 1:
+            y = y[:, None]
+        y_enh = enhance_auto(y, sr)
+        out_audio = float_np_to_audiosegment(y_enh, max(sr, MIN_SR), channels=ch)
+        enh_note = "VAD mute + transient clamp + NR + band-pass + de-ess + LUFS + limiter"
+
+    return out_audio, n_trimmed, seconds_removed
+
+
+# =============================================================================
 # Main
 # =============================================================================
 def main():
@@ -391,9 +592,6 @@ def main():
     if not in_path.exists():
         raise FileNotFoundError(f"Input audio not found: {in_path}")
 
-    audio = AudioSegment.from_file(in_path)
-    print(f"[LOG] Loaded audio: duration {len(audio)/1000:.2f}s, format {audio.frame_rate}Hz {audio.channels}ch {audio.sample_width*8}bit")
-
     # Logs
     print("— Trim settings —")
     print(f"  target_silence_ms   : {args.target_silence_ms}")
@@ -406,38 +604,35 @@ def main():
     print(f"  seek_step_ms        : {args.seek_step_ms}")
     print(f"  crossfade_ms        : {args.crossfade_ms}")
 
-    # Trim
-    processed, n_trimmed, seconds_removed = trim_only_oversized_silences_keep_head(
-        audio,
-        target_silence_ms=args.target_silence_ms,
-        keep_head_ms=args.keep_head_ms,
-        min_silence_ms=args.min_silence_ms,
-        threshold_offset_db=args.threshold_offset_db,
-        absolute_thresh_dbfs=args.absolute_thresh_dbfs,
-        seek_step_ms=args.seek_step_ms,
-        crossfade_ms=args.crossfade_ms,
-    )
+    # Determine processing method based on file size
+    use_progressive = should_use_progressive_processing(in_path)
+    file_size_mb = in_path.stat().st_size / (1024 * 1024)
 
-    # Enhance
-    if args.no_enhance:
-        out_audio = effects.normalize(processed)  # quick peak normalize
-        enh_note = "disabled (peak normalize only)"
+    print(f"  file_size_mb        : {file_size_mb:.1f}MB")
+    print(f"  processing_method   : {'progressive' if use_progressive else 'traditional'}")
+
+    # Process audio based on file size and available methods
+    if use_progressive and PROGRESSIVE_AVAILABLE:
+        # Use progressive processing for large files
+        try:
+            out_audio, n_trimmed, seconds_removed = asyncio.run(
+                process_with_progressive_trimming(in_path, out_path, args)
+            )
+        except Exception as e:
+            logger.warning(f"Progressive processing failed: {e}, falling back to traditional method")
+            out_audio, n_trimmed, seconds_removed = process_with_traditional_method(in_path, args)
     else:
-        y, sr, ch = audiosegment_to_float_np(processed)
-        if y.ndim == 1:
-            y = y[:, None]
-        y_enh = enhance_auto(y, sr)
-        out_audio = float_np_to_audiosegment(y_enh, max(sr, MIN_SR), channels=ch)
-        enh_note = "VAD mute + transient clamp + NR + band-pass + de-ess + LUFS + limiter"
+        # Use traditional processing for smaller files or when progressive is unavailable
+        out_audio, n_trimmed, seconds_removed = process_with_traditional_method(in_path, args)
 
     # Export
     fmt = out_path.suffix.lstrip(".").lower() or "mp3"
     out_audio.export(out_path, format=fmt)
 
     print(f"\n✅ Wrote: {out_path}")
-    print(f"   original: {len(audio)/1000:.2f}s | trimmed: {len(processed)/1000:.2f}s")
+    print(f"   original: {len(AudioSegment.from_file(in_path))/1000:.2f}s | trimmed: {len(out_audio)/1000:.2f}s")
     print(f"   silences shortened: {n_trimmed} | time removed: {seconds_removed:.2f}s")
-    print(f"   enhancement        : {enh_note}")
+    print(f"   enhancement        : {'progressive' if use_progressive else 'traditional'}")
 
 
 if __name__ == "__main__":

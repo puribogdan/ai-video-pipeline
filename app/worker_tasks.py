@@ -5,6 +5,7 @@ import subprocess
 import sys
 import mimetypes
 import time
+import asyncio
 from pathlib import Path
 from typing import Dict, Optional
 from collections import deque
@@ -13,6 +14,8 @@ import stat
 
 from dotenv import load_dotenv
 from .email_utils import send_link_email
+from .audio_monitor import AudioUploadMonitor, AudioFileEvent, FileEventType, get_monitor
+from .monitoring import get_monitor as get_pipeline_monitor, monitoring_context
 
 import boto3
 from botocore.exceptions import ClientError
@@ -255,6 +258,190 @@ def _find_any_audio(job_dir: Path) -> Optional[Path]:
     return None
 
 
+async def _wait_for_audio_event_driven(job_id: str, hint_path: Optional[Path], timeout_s: float = 180.0) -> Path:
+    """
+    Event-driven audio file waiting using the AudioUploadMonitor.
+
+    This function replaces the polling-based approach with event-driven monitoring
+    for better performance and immediate response to file uploads.
+    """
+    log(f"[DEBUG] _wait_for_audio_event_driven: job_id={job_id}, hint_path={hint_path}, timeout={timeout_s}s")
+
+    # Get the global monitor instance
+    monitor = get_monitor()
+
+    # Check if monitor is running, start it if not
+    if not monitor._monitoring:
+        log(f"[INFO] Starting AudioUploadMonitor for event-driven audio detection")
+        await monitor.start_monitoring()
+
+    # Check if we already have a stable audio file for this job
+    job_status = monitor.get_job_status(job_id)
+    if job_status:
+        for file_key, file_info in job_status.get('audio_files', {}).items():
+            if (file_info.get('is_audio') and
+                file_info.get('is_stable') and
+                file_info.get('file_size', 0) > 0):
+
+                file_path = Path(file_key)
+                if file_path.exists() and file_path.stat().st_size > 0:
+                    log(f"[INFO] Found existing stable audio file via monitor: {file_path}")
+                    return file_path
+
+    # Set up event-driven waiting
+    audio_file_ready = asyncio.Event()
+    found_audio_path = None
+
+    # Event callback to handle audio file events
+    async def audio_event_callback(event: AudioFileEvent):
+        nonlocal found_audio_path, audio_file_ready
+
+        if event.job_id == job_id and event.is_audio and event.is_stable:
+            log(f"[INFO] Audio file ready via event: {event.file_path} ({event.file_size} bytes)")
+            found_audio_path = event.file_path
+            audio_file_ready.set()
+
+    # Store original callback and set our temporary one
+    original_callback = monitor.event_callback
+    monitor.event_callback = audio_event_callback
+
+    try:
+        # Also check hint path if provided
+        if hint_path and hint_path.exists():
+            size = hint_path.stat().st_size
+            if size > 0:
+                # Validate it's an audio file
+                mt, _ = mimetypes.guess_type(str(hint_path))
+                is_audio = (hint_path.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma') or
+                           (mt and mt.startswith('audio/')))
+
+                if is_audio:
+                    # Check stability
+                    time.sleep(0.5)
+                    size2 = hint_path.stat().st_size
+                    if size == size2:
+                        log(f"[INFO] Using hint path audio file: {hint_path}")
+                        return hint_path
+
+        # Wait for audio file event or timeout
+        try:
+            await asyncio.wait_for(audio_file_ready.wait(), timeout=timeout_s)
+            if found_audio_path and found_audio_path.exists():
+                return found_audio_path
+        except asyncio.TimeoutError:
+            pass
+
+        # Fallback to polling if event-driven approach doesn't find anything
+        log(f"[WARNING] Event-driven approach timed out, falling back to polling")
+        return await _wait_for_any_audio_polling_fallback(job_id, hint_path, timeout_s)
+
+    finally:
+        # Restore original callback
+        monitor.event_callback = original_callback
+
+
+async def _wait_for_any_audio_polling_fallback(job_id: str, hint_path: Optional[Path], timeout_s: float = 180.0) -> Path:
+    """
+    Fallback polling-based audio file detection.
+
+    This is used when the event-driven approach fails or times out,
+    maintaining backward compatibility with the existing system.
+    """
+    log(f"[DEBUG] Using polling fallback for job_id={job_id}")
+
+    # Use the original polling logic but with async wrapper
+    loop = asyncio.get_event_loop()
+
+    # Run the original synchronous function in a thread pool
+    result = await loop.run_in_executor(None, _wait_for_any_audio_sync, job_id, hint_path, timeout_s)
+    return result
+
+
+def _wait_for_any_audio_sync(job_id: str, hint_path: Optional[Path], timeout_s: float = 180.0) -> Path:
+    """
+    Synchronous version of the original polling-based audio detection.
+
+    This maintains the exact same logic as the original _wait_for_any_audio function
+    but can be called from async contexts via run_in_executor.
+    """
+    t0 = time.time()
+    job_dir = UPLOADS_DIR / job_id
+    log(f"[DEBUG] _wait_for_any_audio_sync: job_dir={job_dir}, hint={hint_path}, timeout={timeout_s}s")
+
+    # Debug: Check job directory state
+    log(f"[DEBUG] Job directory exists: {job_dir.exists()}")
+    if job_dir.exists():
+        try:
+            contents = list(job_dir.iterdir())
+            log(f"[DEBUG] Job directory contents: {[p.name for p in contents]}")
+            for p in contents:
+                if p.is_file():
+                    log(f"[DEBUG] File {p.name}: size={p.stat().st_size}, mime={mimetypes.guess_type(str(p))}")
+        except Exception as e:
+            log(f"[DEBUG] Error listing directory: {e}")
+
+    while time.time() - t0 < timeout_s:
+        # Check hint path first with enhanced validation
+        if hint_path:
+            log(f"[DEBUG] Checking hint path: {hint_path}")
+            log(f"[DEBUG] Hint path exists: {hint_path.exists()}")
+            if hint_path.exists():
+                try:
+                    size = hint_path.stat().st_size
+                    log(f"[DEBUG] Hint path size: {size} bytes")
+                    if size > 0:
+                        # Additional stability check for hint path
+                        time.sleep(0.5)
+                        size2 = hint_path.stat().st_size
+                        if size == size2:
+                            log(f"[DEBUG] Found stable hint {hint_path} ({size} bytes)")
+                            return hint_path
+                        else:
+                            log(f"[DEBUG] Hint path size changed ({size} -> {size2}), still being written...")
+                    else:
+                        log(f"[DEBUG] Hint path exists but is empty (0 bytes)")
+                except Exception as e:
+                    log(f"[DEBUG] Error checking hint path: {e}")
+
+        # Look for any audio file in job directory
+        if job_dir.exists():
+            found = _find_any_audio(job_dir)
+            if found:
+                try:
+                    # Validate file stability
+                    size1 = found.stat().st_size
+                    time.sleep(0.5)
+                    size2 = found.stat().st_size
+
+                    if size1 == size2 and size1 > 0:
+                        log(f"[DEBUG] Discovered stable audio file: {found} ({size1} bytes)")
+                        return found
+                    else:
+                        log(f"[DEBUG] Audio file size changed ({size1} -> {size2}), still being written...")
+                except Exception as e:
+                    log(f"[DEBUG] Error checking found audio file: {e}")
+            else:
+                log(f"[DEBUG] No audio files found in job directory")
+        else:
+            log(f"[DEBUG] Job directory does not exist")
+
+        if int(time.time() - t0) % 5 == 0:  # Reduced frequency for less noise
+            elapsed = time.time() - t0
+            listing = _listdir_safe(job_dir)
+            log(f"[DEBUG] Still waiting after {elapsed:.1f}s... listing={listing}")
+
+        time.sleep(0.5)  # Increased from 0.25 to 0.5 for better stability
+
+    # Timeout reached - provide better error message
+    job_listing = _listdir_safe(job_dir)
+    if not job_dir.exists():
+        raise RuntimeError(f"Job directory does not exist: {job_dir}")
+    elif not job_listing:
+        raise RuntimeError(f"Job directory is empty: {job_dir}")
+    else:
+        raise RuntimeError(f"Audio not found in {job_dir} after {timeout_s}s. Listing: {job_listing}")
+
+
 def _wait_for_any_audio(job_id: str, hint_path: Optional[Path], timeout_s: float = 180.0) -> Path:
     t0 = time.time()
     job_dir = UPLOADS_DIR / job_id
@@ -368,7 +555,21 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
             log(f"[DEBUG] Hint audio size: {hint_audio.stat().st_size} bytes")
             log(f"[DEBUG] Hint audio mime type: {mimetypes.guess_type(str(hint_audio))}")
 
-    audio_src = _wait_for_any_audio(job_id=job_dir.name, hint_path=hint_audio)
+    # Use event-driven audio detection instead of polling
+    try:
+        # Create event loop for async call within sync function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        audio_src = loop.run_until_complete(
+            _wait_for_audio_event_driven(job_id=job_dir.name, hint_path=hint_audio)
+        )
+        loop.close()
+        log(f"[INFO] Event-driven audio detection successful: {audio_src}")
+    except Exception as e:
+        log(f"[WARNING] Event-driven audio detection failed: {e}")
+        log(f"[INFO] Falling back to polling-based detection")
+        # Fallback to original polling method for backward compatibility
+        audio_src = _wait_for_any_audio(job_id=job_dir.name, hint_path=hint_audio)
 
     _copy_pipeline_to(job_dir)
     pipe_dir = job_dir / "pipeline"
@@ -714,8 +915,44 @@ def upload_images_to_b2(job_id: str, images_dir: Path) -> Optional[Dict[str, str
 
 
 def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[str, str]:
-    """Process a video job with comprehensive error handling and retry logic"""
+    """
+    Synchronous wrapper for async job processing.
+
+    This function maintains backward compatibility with RQ while using
+    the new event-driven audio monitoring system internally.
+    """
+    try:
+        # Create new event loop for this job
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            # Run the async version
+            result = loop.run_until_complete(
+                _process_job_async(job_id, email, upload_path, style)
+            )
+            return result
+        finally:
+            loop.close()
+
+    except Exception as e:
+        log(f"[ERROR] Job {job_id} failed in sync wrapper: {e}")
+        import traceback
+        log(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
+        raise
+
+
+async def _process_job_async(job_id: str, email: str, upload_path: str, style: str) -> Dict[str, str]:
+    """
+    Async implementation of video job processing with event-driven audio detection.
+
+    This function contains the main job processing logic using the new
+    AudioUploadMonitor for immediate file system event detection.
+    """
     job_dir = None
+    monitor = get_pipeline_monitor()
+    correlation_id = monitor.start_job_tracking(job_id)
+
     try:
         log(f"[DEBUG] ===== WORKER JOB DEBUGGING =====")
         log(f"[DEBUG] process_job called with job_id={job_id}, email={email}, upload_path={upload_path}, style={style}")
@@ -724,6 +961,13 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
         log(f"[DEBUG] Upload path string: {str(upload_path)}")
         log(f"[DEBUG] Upload path length: {len(upload_path)}")
         log(f"[INFO] Worker is now processing job {job_id} - this confirms the job was dequeued successfully")
+
+        # Record initial job metrics
+        if upload_path:
+            upload_file_path = Path(upload_path)
+            if upload_file_path.exists():
+                file_size = upload_file_path.stat().st_size
+                monitor.record_upload_metrics(file_size, 0.1, True)  # Assume upload was successful
 
         # Enhanced debugging for upload path issues
         if upload_path:
@@ -1174,7 +1418,18 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             except Exception as e:
                 log(f"[WARNING] Failed to save processing status: {e}")
 
+            # Record processing stage start
+            processing_start = time.time()
             final_video = _run_make_video(job_dir, hint_audio, style)
+            processing_time = time.time() - processing_start
+
+            # Record audio processing metrics
+            if hint_audio:
+                audio_size = hint_audio.stat().st_size
+                monitor.record_audio_processing_metrics(job_id, audio_size, processing_time, True)
+
+            # Record job stage completion
+            monitor.record_job_stage(job_id, "video_processing", processing_time, {"style": style})
 
             # Update status: processing
             try:
@@ -1187,6 +1442,13 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             log(f"[ERROR] Video processing failed for job {job_id}: {e}")
             import traceback
             log(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
+
+            # Record failed processing metrics
+            if hint_audio:
+                audio_size = hint_audio.stat().st_size
+                monitor.record_audio_processing_metrics(job_id, audio_size, 0, False)
+
+            monitor.complete_job_tracking(job_id, "failed", str(e))
             raise RuntimeError(f"Video processing failed: {e}")
 
         # Copy to public media directory
@@ -1200,9 +1462,17 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             raise RuntimeError(f"Failed to copy video to public directory: {e}")
 
         # Upload to Backblaze B2 (with fallback to local)
+        upload_start = time.time()
         try:
             b2_url = upload_to_b2(job_id, public_path, job_dir)
             video_url = b2_url or f"{BASE_URL}/media/{job_id}.mp4"
+            upload_time = time.time() - upload_start
+
+            # Record upload metrics
+            if public_path.exists():
+                video_size = public_path.stat().st_size
+                monitor.record_upload_metrics(video_size, upload_time, b2_url is not None)
+
             log(f"Using video URL: {video_url}")
 
             # Upload generated images to B2
@@ -1231,6 +1501,12 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
         except Exception as e:
             log(f"[WARNING] B2 upload failed, falling back to local URL: {e}")
             video_url = f"{BASE_URL}/media/{job_id}.mp4"
+            upload_time = time.time() - upload_start
+
+            # Record failed upload metrics
+            if public_path.exists():
+                video_size = public_path.stat().st_size
+                monitor.record_upload_metrics(video_size, upload_time, False)
 
         # Send email notification
         try:
@@ -1241,6 +1517,9 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
             # Don't fail the job if email fails
 
         log(f"Job {job_id} completed successfully")
+
+        # Record successful completion
+        monitor.complete_job_tracking(job_id, "success")
 
         # Save completion status for persistent tracking
         try:

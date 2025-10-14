@@ -493,6 +493,674 @@ async def detailed_health():
     return health_status
 
 
+@app.get("/health/monitoring")
+async def monitoring_health():
+    """Get comprehensive monitoring system health"""
+    try:
+        from .monitoring import get_monitor
+
+        monitor = get_monitor()
+        status = monitor.get_system_status()
+
+        # Determine overall status
+        overall_status = "healthy"
+        if status["active_alerts"]:
+            if any(alert["severity"] == "critical" for alert in status["active_alerts"]):
+                overall_status = "unhealthy"
+            elif any(alert["severity"] == "warning" for alert in status["active_alerts"]):
+                overall_status = "degraded"
+
+        # Check for unhealthy health checks
+        for check_name, check_info in status["health_checks"].items():
+            if check_info["status"] == "unhealthy":
+                overall_status = "unhealthy"
+            elif check_info["status"] == "degraded" and overall_status == "healthy":
+                overall_status = "degraded"
+
+        return {
+            "status": overall_status,
+            "monitoring": status,
+            "timestamp": time.time()
+        }
+
+    except Exception as e:
+        return {
+            "status": "unhealthy",
+            "error": f"Monitoring health check failed: {str(e)}",
+            "timestamp": time.time()
+        }
+
+
+@app.get("/metrics")
+async def get_metrics():
+    """Get Prometheus metrics"""
+    try:
+        from .monitoring import get_monitor
+
+        monitor = get_monitor()
+        return monitor.metrics.get_prometheus_metrics()
+
+    except Exception as e:
+        return {"error": f"Failed to get metrics: {str(e)}"}
+
+
+@app.get("/monitoring/status")
+async def monitoring_status():
+    """Get detailed monitoring status"""
+    try:
+        from .monitoring import get_monitor
+
+        monitor = get_monitor()
+        return monitor.get_system_status()
+
+    except Exception as e:
+        return {"error": f"Failed to get monitoring status: {str(e)}"}
+
+
+@app.get("/monitoring/alerts")
+async def get_alerts():
+    """Get active alerts"""
+    try:
+        from .monitoring import get_monitor
+
+        monitor = get_monitor()
+        alerts = monitor.alert_manager.get_active_alerts()
+
+        return {
+            "alerts": [
+                {
+                    "id": alert.id,
+                    "severity": alert.severity,
+                    "title": alert.title,
+                    "message": alert.message,
+                    "timestamp": alert.timestamp.isoformat(),
+                    "resolved": alert.resolved
+                }
+                for alert in alerts
+            ],
+            "total": len(alerts)
+        }
+
+    except Exception as e:
+        return {"error": f"Failed to get alerts: {str(e)}"}
+
+
+@app.post("/monitoring/alerts/{alert_id}/resolve")
+async def resolve_alert(alert_id: str):
+    """Resolve an alert"""
+    try:
+        from .monitoring import get_monitor
+
+        monitor = get_monitor()
+        monitor.alert_manager.resolve_alert(alert_id)
+
+        return {"status": "resolved", "alert_id": alert_id}
+
+    except Exception as e:
+        return {"error": f"Failed to resolve alert: {str(e)}"}
+
+
+@app.get("/error-recovery/status")
+async def get_error_recovery_status():
+    """Get comprehensive error recovery system status"""
+    try:
+        from .error_recovery import get_error_recovery_manager
+        from .automated_recovery import get_automated_recovery, get_predictive_failure_detector
+
+        error_recovery = get_error_recovery_manager()
+        automated_recovery = get_automated_recovery()
+        failure_detector = get_predictive_failure_detector()
+
+        return {
+            "error_recovery": error_recovery.get_recovery_stats(),
+            "automated_workflows": automated_recovery.get_workflow_statistics(),
+            "failure_predictions": failure_detector.get_failure_predictions(),
+            "timestamp": time.time()
+        }
+
+    except Exception as e:
+        return {"error": f"Failed to get error recovery status: {str(e)}"}
+
+
+@app.post("/error-recovery/test/{component}")
+async def test_error_recovery(component: str):
+    """Test error recovery for a specific component"""
+    try:
+        from .error_recovery import get_error_recovery_manager
+
+        error_recovery = get_error_recovery_manager()
+
+        # Create a test error based on component
+        if component == "network":
+            test_error = ConnectionError("Test network error")
+        elif component == "storage":
+            test_error = FileNotFoundError("Test storage error")
+        elif component == "external_service":
+            from botocore.exceptions import ClientError
+            test_error = ClientError({"Error": {"Code": "TestError", "Message": "Test external service error"}}, "TestOperation")
+        else:
+            test_error = RuntimeError(f"Test error for component: {component}")
+
+        # Create error context
+        context = error_recovery.create_error_context(
+            error=test_error,
+            component=component,
+            operation="test",
+            metadata={"test": True}
+        )
+
+        # Handle the error with recovery
+        result = await error_recovery.handle_error(test_error, context)
+
+        return {
+            "success": True,
+            "test_component": component,
+            "recovery_result": result,
+            "recovery_stats": error_recovery.get_recovery_stats()
+        }
+
+    except Exception as e:
+        return {"error": f"Error recovery test failed: {str(e)}"}
+
+
+@app.get("/error-recovery/workflows")
+async def list_recovery_workflows():
+    """List all automated recovery workflows"""
+    try:
+        from .automated_recovery import get_automated_recovery
+
+        automated_recovery = get_automated_recovery()
+        workflows = automated_recovery.list_workflows()
+
+        return {
+            "workflows": [
+                {
+                    "name": w.name,
+                    "description": w.description,
+                    "enabled": w.enabled,
+                    "execution_count": w.execution_count,
+                    "last_executed": w.last_executed.isoformat() if w.last_executed else None,
+                    "cooldown_period": w.cooldown_period,
+                    "max_executions": w.max_executions
+                }
+                for w in workflows
+            ],
+            "total_workflows": len(workflows)
+        }
+
+    except Exception as e:
+        return {"error": f"Failed to list workflows: {str(e)}"}
+
+
+@app.post("/error-recovery/workflows/{workflow_name}/execute")
+async def execute_recovery_workflow(workflow_name: str):
+    """Manually execute a recovery workflow"""
+    try:
+        from .automated_recovery import get_automated_recovery
+
+        automated_recovery = get_automated_recovery()
+        workflow = automated_recovery.get_workflow(workflow_name)
+
+        if not workflow:
+            return {"error": f"Workflow not found: {workflow_name}"}
+
+        # Execute the workflow manually
+        await automated_recovery._execute_workflow(workflow)
+
+        return {
+            "success": True,
+            "workflow_name": workflow_name,
+            "execution_count": workflow.execution_count
+        }
+
+    except Exception as e:
+        return {"error": f"Failed to execute workflow: {str(e)}"}
+
+
+@app.websocket("/ws/monitoring")
+async def monitoring_websocket(websocket: WebSocket):
+    """WebSocket endpoint for real-time monitoring updates"""
+    try:
+        from .monitoring import get_monitor
+
+        monitor = get_monitor()
+        client_id = str(uuid.uuid4())
+
+        # Accept the connection
+        await monitor.websocket_manager.connect(client_id, websocket)
+
+        try:
+            while True:
+                # Keep the connection alive and listen for client messages
+                data = await websocket.receive_text()
+
+                # Client can send ping or other control messages
+                if data == "ping":
+                    await websocket.send_json({"type": "pong", "timestamp": time.time()})
+                elif data == "get_status":
+                    # Send current status to client
+                    status = monitor.get_system_status()
+                    await websocket.send_json({
+                        "type": "status_update",
+                        "data": status,
+                        "timestamp": time.time()
+                    })
+
+        except Exception as e:
+            print(f"WebSocket error: {e}")
+        finally:
+            monitor.websocket_manager.disconnect(client_id, websocket)
+
+    except Exception as e:
+        print(f"WebSocket connection error: {e}")
+        await websocket.close()
+
+
+@app.on_event("startup")
+async def startup_monitoring():
+    """Start the monitoring system when the application starts"""
+    try:
+        from .monitoring import get_monitor
+
+        monitor = get_monitor()
+        await monitor.start_monitoring()
+        print("✅ Audio Pipeline Monitoring System Started")
+
+    except Exception as e:
+        print(f"❌ Failed to start monitoring system: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_monitoring():
+    """Stop the monitoring system when the application shuts down"""
+    try:
+        from .monitoring import get_monitor
+
+        monitor = get_monitor()
+        await monitor.stop_monitoring()
+        print("✅ Audio Pipeline Monitoring System Stopped")
+
+    except Exception as e:
+        print(f"❌ Error stopping monitoring system: {e}")
+
+
+@app.on_event("startup")
+async def startup_error_recovery():
+    """Start the error recovery system when the application starts"""
+    try:
+        from .error_recovery import get_error_recovery_manager
+        from .automated_recovery import start_automated_recovery
+
+        # Initialize error recovery manager
+        error_recovery = get_error_recovery_manager()
+        print("✅ Error Recovery System Initialized")
+
+        # Start automated recovery workflows
+        await start_automated_recovery()
+        print("✅ Automated Recovery Workflows Started")
+
+    except Exception as e:
+        print(f"❌ Failed to start error recovery system: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_error_recovery():
+    """Stop the error recovery system when the application shuts down"""
+    try:
+        from .automated_recovery import stop_automated_recovery
+
+        # Stop automated recovery workflows
+        await stop_automated_recovery()
+        print("✅ Automated Recovery Workflows Stopped")
+
+    except Exception as e:
+        print(f"❌ Error stopping error recovery system: {e}")
+
+
+@app.get("/monitoring/dashboard")
+async def monitoring_dashboard():
+    """Serve the monitoring dashboard HTML"""
+    html_content = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Audio Pipeline Monitoring Dashboard</title>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background: #f5f5f5;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+            }
+            .header {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                margin-bottom: 20px;
+            }
+            .status-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 20px;
+                margin-bottom: 20px;
+            }
+            .status-card {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .status-indicator {
+                display: inline-block;
+                width: 12px;
+                height: 12px;
+                border-radius: 50%;
+                margin-right: 8px;
+            }
+            .status-healthy { background: #10b981; }
+            .status-degraded { background: #f59e0b; }
+            .status-unhealthy { background: #ef4444; }
+            .metrics-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+                gap: 20px;
+            }
+            .chart-container {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .alerts {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            .alert-item {
+                padding: 10px;
+                margin: 5px 0;
+                border-radius: 4px;
+                border-left: 4px solid;
+            }
+            .alert-warning { border-left-color: #f59e0b; background: #fef3c7; }
+            .alert-error { border-left-color: #ef4444; background: #fee2e2; }
+            .alert-critical { border-left-color: #dc2626; background: #fecaca; }
+            .connection-status {
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 10px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            .connected { background: #10b981; color: white; }
+            .disconnected { background: #ef4444; color: white; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🎵 Audio Pipeline Monitoring Dashboard</h1>
+                <p>Real-time monitoring and metrics for the audio processing pipeline</p>
+                <div id="connection-status" class="connection-status disconnected">
+                    Disconnected
+                </div>
+            </div>
+
+            <div class="status-grid">
+                <div class="status-card">
+                    <h3>System Health</h3>
+                    <div id="health-checks">
+                        <p>Loading...</p>
+                    </div>
+                </div>
+
+                <div class="status-card">
+                    <h3>Active Alerts</h3>
+                    <div id="active-alerts">
+                        <p>Loading...</p>
+                    </div>
+                </div>
+
+                <div class="status-card">
+                    <h3>System Metrics</h3>
+                    <div id="system-metrics">
+                        <p>Loading...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="chart-container">
+                    <h3>Job Processing Times</h3>
+                    <canvas id="processing-chart" width="400" height="200"></canvas>
+                </div>
+
+                <div class="chart-container">
+                    <h3>System Resource Usage</h3>
+                    <canvas id="resource-chart" width="400" height="200"></canvas>
+                </div>
+            </div>
+
+            <div class="alerts">
+                <h3>Recent Alerts</h3>
+                <div id="alerts-list">
+                    <p>Loading...</p>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let socket;
+            let processingChart;
+            let resourceChart;
+            let statusInterval;
+
+            function connect() {
+                socket = new WebSocket('ws://' + window.location.host + '/ws/monitoring');
+
+                socket.onopen = function(e) {
+                    document.getElementById('connection-status').textContent = 'Connected';
+                    document.getElementById('connection-status').className = 'connection-status connected';
+
+                    // Request initial status
+                    socket.send('get_status');
+
+                    // Start periodic status updates
+                    statusInterval = setInterval(() => {
+                        socket.send('get_status');
+                    }, 30000);
+                };
+
+                socket.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'monitoring_update') {
+                        updateDashboard(data);
+                    } else if (data.type === 'status_update') {
+                        updateStatus(data.data);
+                    } else if (data.type === 'pong') {
+                        // Keep connection alive
+                    }
+                };
+
+                socket.onclose = function(event) {
+                    document.getElementById('connection-status').textContent = 'Disconnected';
+                    document.getElementById('connection-status').className = 'connection-status disconnected';
+
+                    clearInterval(statusInterval);
+
+                    // Attempt to reconnect after 5 seconds
+                    setTimeout(connect, 5000);
+                };
+
+                socket.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                };
+            }
+
+            function updateDashboard(data) {
+                updateHealthChecks(data.health_checks);
+                updateAlerts(data.alerts);
+            }
+
+            function updateStatus(data) {
+                updateHealthChecks(data.health_checks);
+                updateSystemMetrics(data.system_metrics);
+                updateAlertsFromStatus(data.active_alerts);
+            }
+
+            function updateHealthChecks(healthChecks) {
+                const container = document.getElementById('health-checks');
+                let html = '';
+
+                for (const [name, check] of Object.entries(healthChecks)) {
+                    const statusClass = `status-${check.status}`;
+                    html += `
+                        <div style="margin: 10px 0;">
+                            <span class="status-indicator ${statusClass}"></span>
+                            <strong>${name}:</strong> ${check.message}
+                        </div>
+                    `;
+                }
+
+                container.innerHTML = html;
+            }
+
+            function updateSystemMetrics(metrics) {
+                const container = document.getElementById('system-metrics');
+                container.innerHTML = `
+                    <div><strong>Active Jobs:</strong> ${metrics.active_jobs}</div>
+                    <div><strong>Tracked Jobs:</strong> ${metrics.tracked_jobs}</div>
+                    <div><strong>WebSocket Connections:</strong> ${metrics.websocket_connections}</div>
+                `;
+            }
+
+            function updateAlerts(alerts) {
+                updateAlertsFromStatus(alerts);
+            }
+
+            function updateAlertsFromStatus(alerts) {
+                const alertsContainer = document.getElementById('active-alerts');
+                const alertsList = document.getElementById('alerts-list');
+
+                if (alerts.length === 0) {
+                    alertsContainer.innerHTML = '<p>No active alerts</p>';
+                    alertsList.innerHTML = '<p>No recent alerts</p>';
+                    return;
+                }
+
+                // Update active alerts count
+                alertsContainer.innerHTML = `<p><strong>${alerts.length}</strong> active alerts</p>`;
+
+                // Update alerts list
+                let html = '';
+                for (const alert of alerts) {
+                    const alertClass = `alert-${alert.severity}`;
+                    html += `
+                        <div class="alert-item ${alertClass}">
+                            <div><strong>${alert.title}</strong></div>
+                            <div>${alert.message}</div>
+                            <div style="font-size: 12px; color: #666;">
+                                ${new Date(alert.timestamp).toLocaleString()}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                alertsList.innerHTML = html;
+            }
+
+            function initCharts() {
+                // Initialize processing time chart
+                const processingCtx = document.getElementById('processing-chart').getContext('2d');
+                processingChart = new Chart(processingCtx, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [{
+                            label: 'Processing Time (seconds)',
+                            data: [],
+                            borderColor: 'rgb(75, 192, 192)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true
+                            }
+                        }
+                    }
+                });
+
+                // Initialize resource usage chart
+                const resourceCtx = document.getElementById('resource-chart').getContext('2d');
+                resourceChart = new Chart(resourceCtx, {
+                    type: 'line',
+                    data: {
+                        labels: [],
+                        datasets: [
+                            {
+                                label: 'CPU Usage (%)',
+                                data: [],
+                                borderColor: 'rgb(255, 99, 132)',
+                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                                tension: 0.1
+                            },
+                            {
+                                label: 'Memory Usage (%)',
+                                data: [],
+                                borderColor: 'rgb(54, 162, 235)',
+                                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                tension: 0.1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Initialize dashboard when page loads
+            window.onload = function() {
+                initCharts();
+                connect();
+            };
+
+            // Send ping every 30 seconds to keep connection alive
+            setInterval(() => {
+                if (socket && socket.readyState === WebSocket.OPEN) {
+                    socket.send('ping');
+                }
+            }, 30000);
+        </script>
+    </body>
+    </html>
+    """
+
+    return HTMLResponse(content=html_content)
+
+
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
 
 
