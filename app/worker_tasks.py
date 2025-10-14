@@ -357,6 +357,79 @@ async def _wait_for_any_audio_polling_fallback(job_id: str, hint_path: Optional[
     return result
 
 
+def _run_async_audio_detection(job_id: str, hint_path: Optional[Path]) -> Path:
+    """
+    Helper function to run async audio detection in a separate event loop.
+    Used when we need to run async code from a sync context that already has an event loop.
+
+    Includes proper error handling for cases where event loop operations fail.
+    """
+    try:
+        # Create new event loop for this specific operation
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(
+                _wait_for_audio_event_driven(job_id=job_id, hint_path=hint_path)
+            )
+        finally:
+            try:
+                # Cancel any remaining tasks before closing
+                pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+                for task in pending_tasks:
+                    task.cancel()
+
+                # Wait for tasks to complete cancellation
+                if pending_tasks:
+                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+            except Exception as cleanup_error:
+                log(f"[WARNING] Error during event loop cleanup: {cleanup_error}")
+            finally:
+                loop.close()
+    except Exception as e:
+        log(f"[ERROR] Async audio detection failed: {e}")
+        log(f"[ERROR] Falling back to polling-based detection due to event loop issues")
+        # Don't re-raise - let the caller handle fallback to polling
+        raise RuntimeError(f"Event loop audio detection failed: {e}")
+
+
+def _run_job_in_thread_pool(job_id: str, email: str, upload_path: str, style: str) -> Dict[str, str]:
+    """
+    Helper function to run async job processing in a separate event loop.
+    Used when called from a sync context that already has an event loop running (like RQ workers).
+
+    Includes proper error handling and fallback mechanisms.
+    """
+    try:
+        # Create new event loop for this specific job
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(
+                _process_job_async(job_id, email, upload_path, style)
+            )
+        finally:
+            try:
+                # Cancel any remaining tasks before closing
+                pending_tasks = [task for task in asyncio.all_tasks(loop) if not task.done()]
+                for task in pending_tasks:
+                    task.cancel()
+
+                # Wait for tasks to complete cancellation
+                if pending_tasks:
+                    loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+            except Exception as cleanup_error:
+                log(f"[WARNING] Error during job event loop cleanup: {cleanup_error}")
+            finally:
+                loop.close()
+    except Exception as e:
+        log(f"[ERROR] Job processing in thread pool failed: {e}")
+        import traceback
+        log(f"[ERROR] Full traceback:\n{traceback.format_exc()}")
+        log(f"[ERROR] This may be due to event loop conflicts in RQ worker environment")
+        raise RuntimeError(f"Async job processing failed: {e}")
+
+
 def _wait_for_any_audio_sync(job_id: str, hint_path: Optional[Path], timeout_s: float = 180.0) -> Path:
     """
     Synchronous version of the original polling-based audio detection.
@@ -557,19 +630,44 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
 
     # Use event-driven audio detection instead of polling
     try:
-        # Create event loop for async call within sync function
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        audio_src = loop.run_until_complete(
-            _wait_for_audio_event_driven(job_id=job_dir.name, hint_path=hint_audio)
-        )
-        loop.close()
+        # Try to use existing event loop first
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context, create task instead of using run_until_complete
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(_run_async_audio_detection, job_id=job_dir.name, hint_path=hint_audio)
+                audio_src = future.result(timeout=180.0)  # 3 minute timeout
+        except RuntimeError:
+            # No event loop running, create new one (for backward compatibility)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                audio_src = loop.run_until_complete(
+                    _wait_for_audio_event_driven(job_id=job_dir.name, hint_path=hint_audio)
+                )
+            finally:
+                loop.close()
+
         log(f"[INFO] Event-driven audio detection successful: {audio_src}")
     except Exception as e:
         log(f"[WARNING] Event-driven audio detection failed: {e}")
-        log(f"[INFO] Falling back to polling-based detection")
-        # Fallback to original polling method for backward compatibility
-        audio_src = _wait_for_any_audio(job_id=job_dir.name, hint_path=hint_audio)
+        log(f"[WARNING] This may be due to event loop conflicts in RQ worker environment")
+        log(f"[INFO] Falling back to polling-based detection for backward compatibility")
+        try:
+            # Fallback to original polling method for backward compatibility
+            audio_src = _wait_for_any_audio(job_id=job_dir.name, hint_path=hint_audio)
+            log(f"[INFO] Polling fallback successful: {audio_src}")
+        except Exception as polling_error:
+            log(f"[ERROR] Both event-driven and polling detection failed: {polling_error}")
+            log(f"[ERROR] Event-driven error: {e}")
+            # Try one more time with a simpler approach
+            try:
+                audio_src = _wait_for_any_audio_sync(job_id=job_dir.name, hint_path=hint_audio, timeout_s=60.0)
+                log(f"[INFO] Synchronous fallback successful: {audio_src}")
+            except Exception as sync_error:
+                log(f"[CRITICAL] All audio detection methods failed for job {job_dir.name}")
+                raise RuntimeError(f"All audio detection methods failed. Event-driven: {e}, Polling: {polling_error}, Sync: {sync_error}")
 
     _copy_pipeline_to(job_dir)
     pipe_dir = job_dir / "pipeline"
@@ -920,20 +1018,35 @@ def process_job(job_id: str, email: str, upload_path: str, style: str) -> Dict[s
 
     This function maintains backward compatibility with RQ while using
     the new event-driven audio monitoring system internally.
+
+    Handles both scenarios: when called from RQ workers (with existing event loop)
+    and when called from contexts without an event loop.
     """
     try:
-        # Create new event loop for this job
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
+        # Check if we're already in an async context (like RQ worker)
         try:
-            # Run the async version
-            result = loop.run_until_complete(
-                _process_job_async(job_id, email, upload_path, style)
-            )
-            return result
-        finally:
-            loop.close()
+            # Try to get the current running loop
+            loop = asyncio.get_running_loop()
+            # We're in an async context, use thread pool to run async function
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(_run_job_in_thread_pool, job_id, email, upload_path, style)
+                result = future.result(timeout=3600.0)  # 1 hour timeout for video processing
+                return result
+
+        except RuntimeError:
+            # No event loop running, create new one (backward compatibility)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                # Run the async version
+                result = loop.run_until_complete(
+                    _process_job_async(job_id, email, upload_path, style)
+                )
+                return result
+            finally:
+                loop.close()
 
     except Exception as e:
         log(f"[ERROR] Job {job_id} failed in sync wrapper: {e}")
@@ -948,6 +1061,9 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
 
     This function contains the main job processing logic using the new
     AudioUploadMonitor for immediate file system event detection.
+
+    This function is designed to work within existing event loops (like RQ workers)
+    and handles the case where no event loop is running.
     """
     job_dir = None
     monitor = get_pipeline_monitor()

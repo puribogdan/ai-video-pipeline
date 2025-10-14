@@ -464,11 +464,26 @@ class BufferedAudioWriter(AudioStreamWriter):
     def close(self) -> None:
         """Close the writer."""
         try:
-            # Final flush
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self.finalize())
-            loop.close()
+            # Final flush - handle both scenarios: with and without existing event loop
+            try:
+                # Try to use existing event loop first
+                loop = asyncio.get_running_loop()
+                # We're in an async context, schedule the finalize task
+                asyncio.create_task(self.finalize())
+            except RuntimeError:
+                # No event loop running, create new one for finalization
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(self.finalize())
+                except Exception:
+                    # If finalize fails, continue with cleanup
+                    pass
+                finally:
+                    try:
+                        loop.close()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
