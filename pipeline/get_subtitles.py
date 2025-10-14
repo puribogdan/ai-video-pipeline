@@ -51,12 +51,13 @@ def deepgram_transcribe(mp3_bytes: bytes) -> dict:
         "Content-Type": "audio/mpeg",
     }
     params = {
-        "punctuate": "true",
         "model": "nova-2",
         "smart_format": "true",
+        "punctuate": "true",
         "diarize": "false",
         "utterances": "false",
-        "language": "detect",  # 👈 enables automatic language detection
+        "detect_language": "true",  # ✅ correct way to auto-detect language
+        # do NOT include "language": "...", unless you want to force a language
     }
     
     resp = requests.post(DEEPGRAM_URL, headers=headers, params=params, data=mp3_bytes, timeout=120)
