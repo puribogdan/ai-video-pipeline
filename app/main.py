@@ -10,7 +10,7 @@ from datetime import timedelta
 from fastapi import Header, Query, HTTPException
 from fastapi.responses import FileResponse
 
-from fastapi import FastAPI, Request, UploadFile, Form, File
+from fastapi import FastAPI, Request, UploadFile, Form, File, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
