@@ -50,13 +50,15 @@ def deepgram_transcribe(mp3_bytes: bytes) -> dict:
         "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
         "Content-Type": "audio/mpeg",
     }
-    params = {
+        params = {
         "punctuate": "true",
         "model": "nova-2",
         "smart_format": "true",
         "diarize": "false",
         "utterances": "false",
+        "language": "detect",  # 👈 enables automatic language detection
     }
+    
     resp = requests.post(DEEPGRAM_URL, headers=headers, params=params, data=mp3_bytes, timeout=120)
     if resp.status_code >= 400:
         raise RuntimeError(f"Deepgram error {resp.status_code}: {resp.text[:500]}")
