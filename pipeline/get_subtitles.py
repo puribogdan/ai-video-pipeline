@@ -50,7 +50,7 @@ def deepgram_transcribe(mp3_bytes: bytes) -> dict:
         "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
         "Content-Type": "audio/mpeg",
     }
-        params = {
+    params = {
         "punctuate": "true",
         "model": "nova-2",
         "smart_format": "true",
