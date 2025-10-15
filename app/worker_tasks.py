@@ -32,44 +32,12 @@ MEDIA_DIR = APP_ROOT / "media"
 
 # Enhanced debugging for uploads directory configuration (Render server compatible)
 print(f"[worker] [DEBUG] APP_ROOT: {APP_ROOT}", flush=True)
+UPLOADS_DIR_DEFAULT = "/tmp/uploads"
+UPLOADS_DIR_ENV = os.getenv("UPLOADS_DIR")
+print(f"[worker] [DEBUG] UPLOADS_DIR from env: {UPLOADS_DIR_ENV}", flush=True)
+print(f"[worker] [DEBUG] UPLOADS_DIR default: {UPLOADS_DIR_DEFAULT}", flush=True)
 
-# Robust uploads directory configuration with fallbacks
-UPLOADS_DIR_DEFAULT = "/app/uploads"
-
-# Start with environment variable or default
-_upload_dir_env = os.getenv("UPLOADS_DIR", UPLOADS_DIR_DEFAULT)
-UPLOADS_DIR = Path(_upload_dir_env)
-
-# Try to create and verify the directory works
-try:
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    if UPLOADS_DIR.exists():
-        print(f"[worker] [INFO] Using uploads directory: {UPLOADS_DIR}", flush=True)
-    else:
-        raise Exception("Directory creation failed")
-except Exception as e:
-    print(f"[worker] [WARNING] Cannot use configured uploads path {_upload_dir_env}: {e}", flush=True)
-
-    # Fallback to alternative paths
-    fallback_paths = ["/tmp/uploads", "./uploads"]
-    for fallback_path in fallback_paths:
-        try:
-            test_path = Path(fallback_path)
-            test_path.mkdir(parents=True, exist_ok=True)
-            if test_path.exists():
-                UPLOADS_DIR = test_path
-                print(f"[worker] [INFO] Using fallback uploads directory: {UPLOADS_DIR}", flush=True)
-                break
-        except Exception as e2:
-            print(f"[worker] [WARNING] Cannot use fallback path {fallback_path}: {e2}", flush=True)
-            continue
-
-# Final safety check
-if not UPLOADS_DIR or not UPLOADS_DIR.exists():
-    UPLOADS_DIR = Path("/tmp/uploads")
-    print(f"[worker] [ERROR] Using emergency fallback uploads directory: {UPLOADS_DIR}", flush=True)
-
-print(f"[worker] [DEBUG] UPLOADS_DIR configured as: {UPLOADS_DIR}", flush=True)
+UPLOADS_DIR = Path(UPLOADS_DIR_ENV) if UPLOADS_DIR_ENV else Path(UPLOADS_DIR_DEFAULT)
 print(f"[worker] [DEBUG] UPLOADS_DIR configured as: {UPLOADS_DIR}", flush=True)
 print(f"[worker] [DEBUG] UPLOADS_DIR exists: {UPLOADS_DIR.exists()}", flush=True)
 print(f"[worker] [DEBUG] UPLOADS_DIR parent: {UPLOADS_DIR.parent}", flush=True)

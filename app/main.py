@@ -24,42 +24,7 @@ from .worker_tasks import process_job
 load_dotenv()
 
 APP_ROOT = Path(__file__).resolve().parents[1]
-
-# Robust uploads directory configuration with fallbacks
-UPLOADS_DIR_DEFAULT = "/app/uploads"
-
-# Start with environment variable or default
-_upload_dir_env = os.getenv("UPLOADS_DIR", UPLOADS_DIR_DEFAULT)
-UPLOADS_DIR = Path(_upload_dir_env)
-
-# Try to create and verify the directory works
-try:
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    if UPLOADS_DIR.exists():
-        print(f"[INFO] Using uploads directory: {UPLOADS_DIR}", flush=True)
-    else:
-        raise Exception("Directory creation failed")
-except Exception as e:
-    print(f"[WARNING] Cannot use configured uploads path {_upload_dir_env}: {e}", flush=True)
-
-    # Fallback to alternative paths
-    fallback_paths = ["/tmp/uploads", "./uploads"]
-    for fallback_path in fallback_paths:
-        try:
-            test_path = Path(fallback_path)
-            test_path.mkdir(parents=True, exist_ok=True)
-            if test_path.exists():
-                UPLOADS_DIR = test_path
-                print(f"[INFO] Using fallback uploads directory: {UPLOADS_DIR}", flush=True)
-                break
-        except Exception as e2:
-            print(f"[WARNING] Cannot use fallback path {fallback_path}: {e2}", flush=True)
-            continue
-
-# Final safety check
-if not UPLOADS_DIR or not UPLOADS_DIR.exists():
-    UPLOADS_DIR = Path("/tmp/uploads")
-    print(f"[ERROR] Using emergency fallback uploads directory: {UPLOADS_DIR}", flush=True)
+UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/tmp/uploads"))  # Render-fast tmp
 MEDIA_DIR = APP_ROOT / "media"
 TEMPLATES = Jinja2Templates(directory=str(APP_ROOT / "app" / "templates"))
 
