@@ -13,7 +13,7 @@ def test_file_sharing():
     """Test that files are properly shared between upload and worker processes"""
 
     # Use the same uploads directory as the application
-    uploads_dir = Path(os.getenv("UPLOADS_DIR", "/opt/render/project/src/uploads"))
+    uploads_dir = Path(os.getenv("UPLOADS_DIR", "/app/uploads"))
 
     # Create a test job directory
     job_id = f"test_{int(time.time())}"
