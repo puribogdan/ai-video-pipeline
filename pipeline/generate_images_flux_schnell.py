@@ -82,6 +82,10 @@ STYLE_LIBRARY: Dict[str, str] = {
 
 DEFAULT_STYLE_KEY = "kid_friendly_cartoon"  # fallback if env not set
 
+# -------------------- Camera Angle Variation Prompt --------------------
+CAMERA_ANGLE_PROMPT = """Add variation:
+Use a different camera angle or framing for this image — for example, a close-up, wide shot, low angle, high angle, or over-the-shoulder view — while keeping the same style and subject consistency."""
+
 # -------------------- Helpers --------------------
 def load_scenes() -> List[Dict[str, Any]]:
     if not SCRIPT_PATH.exists():
@@ -194,9 +198,9 @@ but do not make them the main focus.
 Maintain consistent clothing, lighting, and visual style from image[0] across all scenes.
 Match the overall scene layout, mood, and direction to image[1].
 Ensure the person from image[0] integrates naturally into the environment without duplication."""
-        return f"{desc}\n{portrait_prompt}\n{style_line}"
+        return f"{desc}\n{portrait_prompt}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
     else:
-        return f"{desc}\n{style_line}"
+        return f"{desc}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
 
 def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
     if has_portrait:
@@ -214,9 +218,9 @@ but do not make them the main focus.
 Maintain consistent clothing, lighting, and visual style from image[0] across all scenes.
 Match the overall scene layout, mood, and direction to image[1].
 Ensure the person from image[0] integrates naturally into the environment without duplication."""
-        return f"SCENE BRIEF: {desc}\n{portrait_prompt}\n{style_line}"
+        return f"SCENE BRIEF: {desc}\n{portrait_prompt}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
     else:
-        return f"SCENE BRIEF: {desc}\n{style_line}"
+        return f"SCENE BRIEF: {desc}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
 
 # -------------------- Model calls (with tiny retry) --------------------
 def _run_with_retry(fn, *args, retries: int = 2, delay: float = 1.5, **kwargs):
