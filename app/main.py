@@ -24,7 +24,7 @@ from .worker_tasks import process_job
 load_dotenv()
 
 APP_ROOT = Path(__file__).resolve().parents[1]
-UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", "/app/uploads"))  # Docker shared volume
+UPLOADS_DIR = Path(os.getenv("UPLOADS_DIR", str(APP_ROOT / "uploads")))  # Render-compatible uploads directory
 MEDIA_DIR = APP_ROOT / "media"
 TEMPLATES = Jinja2Templates(directory=str(APP_ROOT / "app" / "templates"))
 

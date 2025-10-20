@@ -32,7 +32,7 @@ MEDIA_DIR = APP_ROOT / "media"
 
 # Enhanced debugging for uploads directory configuration (Render server compatible)
 print(f"[worker] [DEBUG] APP_ROOT: {APP_ROOT}", flush=True)
-UPLOADS_DIR_DEFAULT = "/app/uploads"
+UPLOADS_DIR_DEFAULT = str(APP_ROOT / "uploads")
 UPLOADS_DIR_ENV = os.getenv("UPLOADS_DIR")
 print(f"[worker] [DEBUG] UPLOADS_DIR from env: {UPLOADS_DIR_ENV}", flush=True)
 print(f"[worker] [DEBUG] UPLOADS_DIR default: {UPLOADS_DIR_DEFAULT}", flush=True)
