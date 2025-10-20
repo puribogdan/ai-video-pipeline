@@ -628,18 +628,18 @@ def main():
             prompt = (
                 f"{scene_text}\n"
                 f"{animation_style}\n"
-                
+
                 "Do not add or duplicate characters unless specified. "
                 "If any text appears in the image render it in English language "
                 "Respect accurate perspective and depth, keeping realistic distance, proportions, and scale between foreground and background objects."
-               
+
             )
         else:
             # Fallback if no scene description available
             prompt = (
                 f"{animation_style}\n"
-                
-                "Do not add or duplicate characters unless specified. "                
+
+                "Do not add or duplicate characters unless specified. "
                 "If any text appears in the image render it in English language "
                 "Respect accurate perspective and depth, keeping realistic distance, proportions, and scale between foreground and background objects."
             )
@@ -658,62 +658,55 @@ def main():
             "animation_style": animation_style
         }
 
+        # Prepare scene data for retry function
+        scene_data = {
+            "prompt": prompt,
+            "scene_description": scene_text,
+            "style": style_key
+        }
+
         try:
-            # Use improved generation logic with separate download retries
-            prediction = try_seedance(args.model, img_path, prompt, request_int, args.resolution, args.fps)
+            # 🎯 NEW: Use scene-level retry function
+            scene_bytes = generate_scene_with_retry(
+                scene_data, scene_id, img_path,
+                model=args.model, resolution=args.resolution, fps=args.fps,
+                max_scene_retries=2
+            )
 
-            # Handle both direct output and prediction objects
-            if prediction and hasattr(prediction, 'id'):  # It's a prediction object
+            if scene_bytes:
+                # Write the successful video data
+                write_bytes(raw_path, scene_bytes)
+
+                # Apply trimming for all scenes except the last one
+                if idx < len(scenes) - 1:  # Not the last scene
+                    # Trim to the exact scene duration
+                    trim_to_target(raw_path, out_path, target, args.fps)
+                else:
+                    # Last scene - keep the full 10-second video (no trimming)
+                    safe_replace(raw_path, out_path)
+
+                # Clean up the raw file after processing
                 try:
-                    pred_id = getattr(prediction, 'id', None)
-                    if pred_id:
-                        print(f"📹 Generation submitted, prediction ID: {pred_id}")
-                    else:
-                        print(f"📹 Generation completed synchronously")
+                    safe_unlink(raw_path)
                 except Exception:
-                    print(f"📹 Generation completed synchronously")
-                # For now, we'll still use synchronous waiting but with better error handling
-                # In a full implementation, this would poll the prediction status
-                out = prediction
+                    pass
+
+                # Log successful video chunk creation
+                timestamp = datetime.now().isoformat()
+                logger.info(f"VIDEO_CHUNK_CREATED - Scene: {scene_id}, Timestamp: {timestamp}, "
+                            f"Input: {img_path.name}, Output: {out_path.name}, "
+                            f"Target Duration: {target:.3f}s, "
+                            f"Generated Duration: 10s, Model: {args.model}, "
+                            f"Resolution: {args.resolution}, FPS: {args.fps}, Style: {style_key}, "
+                            f"Trimmed: {'Yes' if idx < len(scenes) - 1 else 'No (last scene)'}, "
+                            f"Scene Description: {scene_text[:100]}{'...' if len(scene_text) > 100 else ''}")
+
+                print(f"✅ {out_path.name} (target {target:.3f}s, generated 10s{' trimmed' if idx < len(scenes) - 1 else ' kept full'})")
             else:
-                print(f"📹 Generation completed synchronously")
-                out = prediction
+                print(f"⚠️  Scene {scene_id}: Skipped - all retries failed")
 
-            # Use separate download retry logic with timeout
-            data = download_video_bytes_with_retry(out, max_download_retries=3, download_timeout=60)
-            if not data:
-                print(f"DEBUG output type: {type(out)}; sample: {str(out)[:200]}")
-                raise RuntimeError(f"No usable video bytes in model output (scene {scene_id}).")
-
-            write_bytes(raw_path, data)
-
-            # Apply trimming for all scenes except the last one
-            if idx < len(scenes) - 1:  # Not the last scene
-                # Trim to the exact scene duration
-                trim_to_target(raw_path, out_path, target, args.fps)
-            else:
-                # Last scene - keep the full 10-second video (no trimming)
-                safe_replace(raw_path, out_path)
-
-            # Clean up the raw file after processing
-            try:
-                safe_unlink(raw_path)
-            except Exception:
-                pass
-
-            # Log successful video chunk creation
-            timestamp = datetime.now().isoformat()
-            logger.info(f"VIDEO_CHUNK_CREATED - Scene: {scene_id}, Timestamp: {timestamp}, "
-                        f"Input: {img_path.name}, Output: {out_path.name}, "
-                        f"Target Duration: {target:.3f}s, "
-                        f"Generated Duration: 10s, Model: {args.model}, "
-                        f"Resolution: {args.resolution}, FPS: {args.fps}, Style: {style_key}, "
-                        f"Trimmed: {'Yes' if idx < len(scenes) - 1 else 'No (last scene)'}, "
-                        f"Scene Description: {scene_text[:100]}{'...' if len(scene_text) > 100 else ''}")
-
-            print(f"✅ {out_path.name} (target {target:.3f}s, generated 10s{' trimmed' if idx < len(scenes) - 1 else ' kept full'})")
         except Exception as e:
-            # Log failed video chunk creation
+            # Enhanced error logging
             timestamp = datetime.now().isoformat()
             logger.error(f"VIDEO_CHUNK_FAILED - Scene: {scene_id}, Timestamp: {timestamp}, "
                         f"Input: {img_path.name}, Target Duration: {target:.3f}s, "
@@ -722,8 +715,9 @@ def main():
                         f"Style: {style_key}, Error: {str(e)}, "
                         f"Scene Description: {scene_text[:100]}{'...' if len(scene_text) > 100 else ''}")
 
-            print(f"⚠️  Scene {scene_id} failed: {e}")
-            # Clean up the raw file in case of error
+            print(f"💀 Scene {scene_id} failed permanently: {e}")
+
+            # Clean up partial files
             try:
                 safe_unlink(raw_path)
             except Exception:
@@ -736,6 +730,43 @@ def main():
         VIDEO_PROMPTS_JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
         VIDEO_PROMPTS_JSON_PATH.write_text(json.dumps(video_prompts_log, indent=2), encoding="utf-8")
         print(f"📝 Video prompts logged to: {VIDEO_PROMPTS_JSON_PATH} (with original scene descriptions)")
+
+
+def generate_scene_with_retry(scene_data, scene_id, img_path, model, resolution, fps, request_duration=10, max_scene_retries=2):
+    """Generate a single scene with visible retry logging"""
+
+    for scene_attempt in range(max_scene_retries):
+        try:
+            print(f"🎬 Scene {scene_id}: Starting generation (attempt {scene_attempt + 1}/{max_scene_retries})")
+
+            # This includes the existing 3 API retries
+            prediction = try_seedance(model, img_path, scene_data["prompt"], request_duration, resolution, fps)
+
+            print(f"📹 Scene {scene_id}: Generation submitted, waiting for completion...")
+
+            # Download with existing retry logic
+            data = download_video_bytes_with_retry(prediction, max_download_retries=3, download_timeout=60)
+
+            if data and len(data) > 1024:
+                print(f"✅ Scene {scene_id}: Succeeded on attempt {scene_attempt + 1}")
+                return data
+            else:
+                print(f"⚠️  Scene {scene_id}: Generated data too small ({len(data) if data else 0} bytes)")
+                raise RuntimeError("Generated video too small")
+
+        except Exception as e:
+            print(f"❌ Scene {scene_id}: Attempt {scene_attempt + 1} failed: {e}")
+
+            if scene_attempt < max_scene_retries - 1:
+                delay = 30 * (2 ** scene_attempt)  # 30s, 60s
+                print(f"⏳ Scene {scene_id}: Retrying in {delay}s...")
+                time.sleep(delay)
+                continue
+            else:
+                print(f"💀 Scene {scene_id}: All {max_scene_retries} attempts failed")
+                raise e
+
+    return None
 
 def test_enhancement():
     """Test function to verify scene enhancement works"""

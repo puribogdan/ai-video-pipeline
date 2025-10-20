@@ -57,7 +57,7 @@ def deepgram_transcribe(mp3_bytes: bytes) -> dict:
         "diarize": "false",
         "utterances": "false",
         "detect_language": "true",  # ✅ correct way to auto-detect language
-        # do NOT include "language": "...", unless you want to force a language
+        
     }
     
     resp = requests.post(DEEPGRAM_URL, headers=headers, params=params, data=mp3_bytes, timeout=120)
