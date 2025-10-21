@@ -1640,7 +1640,14 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
         # Save completion status for persistent tracking
         try:
             from app.main import _save_job_completion
-            _save_job_completion(job_id, "done", {"status": "done", "video_url": video_url})
+            completion_data = {"status": "done", "video_url": video_url}
+
+            # Add thumbnail_url if images were uploaded and scene_001.png exists
+            if image_urls and 'scene_001.png' in image_urls:
+                completion_data["thumbnail_url"] = image_urls['scene_001.png']
+                log(f"[INFO] Added thumbnail_url to completion data: {completion_data['thumbnail_url']}")
+
+            _save_job_completion(job_id, "done", completion_data)
         except Exception as e:
             log(f"[WARNING] Failed to save completion status: {e}")
 

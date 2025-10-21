@@ -358,6 +358,8 @@ async def status(job_id: str):
             response = {"job_id": job_id, "status": completion_data.get("state", "unknown")}
             if completion_data.get("state") == "done" and completion_data.get("result"):
                 response["result_url"] = completion_data["result"].get("video_url")
+                if completion_data["result"].get("thumbnail_url"):
+                    response["thumbnail_url"] = completion_data["result"]["thumbnail_url"]
             elif completion_data.get("state") == "failed":
                 response["error"] = completion_data.get("result", {}).get("error", "Unknown error")
             return response
