@@ -78,7 +78,7 @@ def _safe_name(name: str) -> str:
     return cleaned[:128]
 
 
-_ALLOWED_STYLES = {"kid_friendly_cartoon", "japanese_kawaii", "storybook_illustrated", "watercolor_storybook", "paper_cutout", "cutout_collage", "realistic_3d", "claymation", "needle_felted", "stop_motion_felt_clay", "hybrid_mix", "japanese_anime", "pixel_art", "van_gogh", "impressionism", "art_deco", "cubism", "graphic_novel", "motion_comic", "comic_book", "gothic", "silhouette", "fantasy_magic_glow", "surrealism_hybrid", "ink_parchment", "japanese_woodblock", "ink_wash", "japanese_gold_screen", "japanese_scroll", "japanese_court"}
+_ALLOWED_STYLES = {"kid_friendly_cartoon", "japanese_kawaii", "storybook_illustrated", "watercolor_storybook", "paper_cutout", "cutout_collage", "realistic_3d", "claymation", "needle_felted", "stop_motion_felt_clay", "hybrid_mix", "japanese_anime", "pixel_art", "van_gogh", "impressionism", "art_deco", "motion_comic", "comic_book", "gothic", "fantasy_magic_glow", "surrealism_hybrid", "japanese_woodblock"}
 
 
 @app.post("/submit", response_class=HTMLResponse)

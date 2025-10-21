@@ -64,20 +64,12 @@ STYLE_LIBRARY: Dict[str, str] = {
     "van_gogh": "A painterly style inspired by Vincent van Gogh. Preserve swirling brushstrokes, thick textured oils, vivid contrasting colors, and bold impasto effects. Preserve the exact style and subject from the start frame.",
     "impressionism": "An Impressionist style inspired by Claude Monet and Pierre-Auguste Renoir. Preserve soft brushstrokes, dappled light, pastel colors, and dreamy open-air compositions. Preserve the exact style and subject from the start frame.",
     "art_deco": "An Art Deco style inspired by Tamara de Lempicka and 1920s poster art. Preserve sleek geometry, metallic tones, streamlined symmetry, and glamorous forms. Preserve the exact style and subject from the start frame.",
-    "cubism": "A Cubist style inspired by Pablo Picasso and Georges Braque. Preserve geometric fragmentation, layered abstract faces, and overlapping perspectives. Preserve the exact style and subject from the start frame.",
-    "graphic_novel": "A graphic novel style inspired by Frank Miller. Preserve heavy inking, dramatic chiaroscuro shading, and bold panel-style composition. Preserve the exact style and subject from the start frame.",
     "motion_comic": "A manga style inspired by Japanese comics. Preserve bold linework, screentone textures, expressive facial features, and iconic manga aesthetics. Preserve the exact style and subject from the start frame.",
     "comic_book": "A comic book style inspired by Jack Kirby and classic superhero comics. Preserve bold outlines, halftone dots, vibrant colors, and exaggerated action poses. Preserve the exact style and subject from the start frame.",
     "gothic": "A gothic whimsical style inspired by Tim Burton and Edward Gorey. Preserve elongated characters, moody lighting, and playful gothic charm. Preserve the exact style and subject from the start frame.",
-    "silhouette": "A silhouette style inspired by Lotte Reiniger and traditional shadow puppetry. Preserve stark black figures, strong cut-out shapes, and glowing backgrounds. Preserve the exact style and subject from the start frame.",
     "fantasy_magic_glow": "A glowing fantasy style inspired by Studio Ghibli and Disney's Fantasia. Preserve luminous glows, soft gradients, spark-like particles, and magical enchanted settings. Preserve the exact style and subject from the start frame.",
     "surrealism_hybrid": "A surrealist whimsical style blending Dr. Seuss and Salvador Dalí. Preserve Seussian curves, surreal dreamscapes, and imaginative distorted forms. Preserve the exact style and subject from the start frame.",
-    "ink_parchment": "A parchment style inspired by Qi Baishi and Xu Beihong. Preserve parchment textures, bold ink strokes, red-and-gold folkloric colors, and martial arts themes. Preserve the exact style and subject from the start frame.",
     "japanese_woodblock": "A woodblock style inspired by Hokusai and Hiroshige. Preserve bold outlines, flat layered colors, and dramatic wave and mountain compositions. Preserve the exact style and subject from the start frame.",
-    "ink_wash": "An ink wash style inspired by Sesshū Tōyō and Zen painters. Preserve bold flowing brushstrokes, soft gradients, and expressive negative space. Preserve the exact style and subject from the start frame.",
-    "japanese_gold_screen": "A gold screen style inspired by Kano Eitoku and Ogata Kōrin. Preserve shimmering gold leaf textures, stylized cranes, pines, and seasonal decorative motifs. Preserve the exact style and subject from the start frame.",
-    "japanese_scroll": "A narrative scroll style inspired by the Ban Dainagon Ekotoba. Preserve continuous horizontal flow, delicate linework, and stylized story scenes. Preserve the exact style and subject from the start frame.",
-    "japanese_court": "A Yamato-e style inspired by the Tale of Genji scrolls. Preserve delicate brush lines, soft colors, and courtly seasonal motifs. Preserve the exact style and subject from the start frame.",
 }
 
 DEFAULT_STYLE_KEY = "kid_friendly_cartoon"  # fallback if env not set

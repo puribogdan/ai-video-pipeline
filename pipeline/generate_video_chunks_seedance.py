@@ -77,9 +77,7 @@ VIDEO_STYLE_LIBRARY: Dict[str, str] = {
   
   "art_deco": "Animate in an art deco style with smooth geometric motion. Keep characters steady and proportions consistent.",
   
-  "cubism": "Animate in a cubist style with simple shifting shapes. Keep motion steady and proportions consistent.",
   
-  "graphic_novel": "Animate like a graphic novel with simple panel-like motion and stable characters.",
   
   "motion_comic": "Animate like a motion comic with subtle character movements and smooth panel shifts. Keep everything stable.",
   
@@ -87,23 +85,17 @@ VIDEO_STYLE_LIBRARY: Dict[str, str] = {
   
   "gothic": "Animate in a gothic style with subtle, moody motion. Keep characters steady and grounded.",
   
-  "silhouette": "Animate in a silhouette style with simple, puppet-like movement. Keep proportions consistent and grounded.",
   
   "fantasy_magic_glow": "Animate with soft glowing magical effects and calm, stable motion. Keep characters steady.",
   
   "surrealism_hybrid": "Animate with a light surreal style using gentle, playful motion. Keep everything stable.",
   
-  "ink_parchment": "Animate like ink on parchment with simple flowing motion. Keep proportions stable and grounded.",
   
   "japanese_woodblock": "Animate in a woodblock print style with calm, sliding motion. Keep characters steady and grounded.",
   
-  "ink_wash": "Animate in an ink wash style with gentle brushstroke motion. Keep proportions stable and consistent.",
   
-  "japanese_gold_screen": "Animate in a gold screen style with smooth, ceremonial motion. Keep characters steady.",
   
-  "japanese_scroll": "Animate like a Japanese scroll with continuous side-scrolling motion. Keep proportions stable.",
   
-  "japanese_court": "Animate in a Japanese court art style with gentle pans and subtle gestures. Keep everything grounded."
 }
 
 
