@@ -39,6 +39,7 @@ class AudioFormat(Enum):
     FLAC = "flac"
     OGG = "ogg"
     AAC = "aac"
+    WEBM = "webm"
     UNKNOWN = "unknown"
 
 
@@ -169,7 +170,8 @@ class SoundFileAudioReader(AudioStreamReader):
             'm4a': AudioFormat.M4A,
             'flac': AudioFormat.FLAC,
             'ogg': AudioFormat.OGG,
-            'aac': AudioFormat.AAC
+            'aac': AudioFormat.AAC,
+            'webm': AudioFormat.WEBM
         }
         return format_map.get(ext, AudioFormat.UNKNOWN)
 
@@ -314,7 +316,8 @@ class LibrosaAudioReader(AudioStreamReader):
             'm4a': AudioFormat.M4A,
             'flac': AudioFormat.FLAC,
             'ogg': AudioFormat.OGG,
-            'aac': AudioFormat.AAC
+            'aac': AudioFormat.AAC,
+            'webm': AudioFormat.WEBM
         }
         return format_map.get(ext, AudioFormat.UNKNOWN)
 
@@ -457,7 +460,8 @@ class BufferedAudioWriter(AudioStreamWriter):
             AudioFormat.WAV: 'WAV',
             AudioFormat.MP3: 'MP3',
             AudioFormat.FLAC: 'FLAC',
-            AudioFormat.OGG: 'OGG'
+            AudioFormat.OGG: 'OGG',
+            AudioFormat.WEBM: 'WEBM'
         }
         return format_map.get(self.stream_info.format, 'WAV')
 

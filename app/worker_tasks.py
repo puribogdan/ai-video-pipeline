@@ -209,7 +209,7 @@ def _listdir_safe(p: Path) -> list[str]:
 
 def _find_any_audio(job_dir: Path) -> Optional[Path]:
     log(f"[DEBUG] _find_any_audio searching in: {job_dir}")
-    audio_exts = (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma")
+    audio_exts = (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac", ".wma", ".webm")
     found_files = []
 
     # First pass: look for files with audio extensions
@@ -312,8 +312,8 @@ async def _wait_for_audio_event_driven(job_id: str, hint_path: Optional[Path], t
             if size > 0:
                 # Validate it's an audio file
                 mt, _ = mimetypes.guess_type(str(hint_path))
-                is_audio = (hint_path.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma') or
-                           (mt and mt.startswith('audio/')))
+                is_audio = (hint_path.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma', '.webm') or
+                            (mt and mt.startswith('audio/')))
 
                 if is_audio:
                     # Check stability
@@ -1137,7 +1137,7 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
                         if size > 0:
                             # Check if it's an audio file by extension or mime type
                             mt, _ = mimetypes.guess_type(str(upload_path_obj))
-                            is_audio = (upload_path_obj.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma') or
+                            is_audio = (upload_path_obj.suffix.lower() in ('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma', '.webm') or
                                        (mt and mt.startswith('audio/')))
 
                             if is_audio:
@@ -1482,7 +1482,7 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
 
 
                     # More flexible error message since system now accepts any audio file
-                    audio_files = [f for f in available_files if f.endswith(('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma'))]
+                    audio_files = [f for f in available_files if f.endswith(('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma', '.webm'))]
                     if audio_files:
                         log(f"[INFO] Audio files found in directory: {audio_files} - possible file access issue")
                         raise RuntimeError(

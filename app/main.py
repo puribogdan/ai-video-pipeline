@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request, UploadFile, Form, File, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from redis import Redis
 from rq import Queue, Retry
@@ -58,6 +59,17 @@ STATIC_DIR = APP_ROOT / "app" / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://dreampop.ai"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -81,7 +93,7 @@ def _safe_name(name: str) -> str:
 _ALLOWED_STYLES = {"kid_friendly_cartoon", "japanese_kawaii", "storybook_illustrated", "watercolor_storybook", "paper_cutout", "cutout_collage", "realistic_3d", "claymation", "needle_felted", "stop_motion_felt_clay", "hybrid_mix", "japanese_anime", "pixel_art", "van_gogh", "impressionism", "art_deco", "motion_comic", "comic_book", "gothic", "fantasy_magic_glow", "surrealism_hybrid", "japanese_woodblock"}
 
 
-@app.post("/submit", response_class=HTMLResponse)
+@app.post("/submit")
 async def submit(
     request: Request,
     email: str = Form(...),
@@ -97,7 +109,7 @@ async def submit(
     allowed_mimes = {
         "audio/mpeg", "audio/wav", "audio/x-wav",
         "audio/m4a", "audio/x-m4a", "audio/mp4",
-        "audio/aac", "audio/ogg",
+        "audio/aac", "audio/ogg", "audio/flac", "audio/webm",
     }
     if audio.content_type not in allowed_mimes:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {audio.content_type}")
@@ -312,7 +324,14 @@ async def submit(
     rq_job_mapping.write_text(rq_job.id)
     print(f"[DEBUG] Stored RQ job ID mapping: {job_id} -> {rq_job.id}", flush=True)
 
-    return TEMPLATES.TemplateResponse("upload.html", {"request": request, "job_id": job_id})
+    return JSONResponse(
+        content={
+            "job_id": job_id,
+            "status": "queued",
+            "message": "Job created"
+        },
+        status_code=201
+    )
 
 
 @app.get("/status/{job_id}")
@@ -323,7 +342,7 @@ async def status(job_id: str):
     # First, check if job directory exists
     job_dir = UPLOADS_DIR / job_id
     if not job_dir.exists():
-        return {"state": "unknown", "error": f"Job directory not found: {job_id}"}
+        return {"job_id": job_id, "status": "unknown", "error": f"Job directory not found: {job_id}"}
 
     # Check for completion file first (most reliable method)
     completion_file = job_dir / "completion_status.json"
@@ -334,7 +353,14 @@ async def status(job_id: str):
             # Map old state names to new ones for backward compatibility
             if completion_data.get("state") == "finished":
                 completion_data["state"] = "done"
-            return completion_data
+
+            # Transform to new format
+            response = {"job_id": job_id, "status": completion_data.get("state", "unknown")}
+            if completion_data.get("state") == "done" and completion_data.get("result"):
+                response["result_url"] = completion_data["result"].get("video_url")
+            elif completion_data.get("state") == "failed":
+                response["error"] = completion_data.get("result", {}).get("error", "Unknown error")
+            return response
         except Exception as file_error:
             print(f"[WARNING] Failed to read completion file for job {job_id}: {file_error}", flush=True)
 
@@ -360,16 +386,16 @@ async def status(job_id: str):
         if job.is_finished:
             # Job completed successfully - save to file for persistence
             _save_job_completion(job_id, "done", job.result)
-            return {"state": "done", "result": job.result}
+            return {"job_id": job_id, "status": "done", "result_url": job.result.get("video_url")}
         elif job.is_failed:
             # Job failed - save to file for persistence
             _save_job_completion(job_id, "failed", {"error": str(job.exc_info)[:2000]})
-            return {"state": "failed", "exc": str(job.exc_info)[:2000]}
+            return {"job_id": job_id, "status": "failed", "error": str(job.exc_info)[:2000]}
         else:
             # Job still in progress - map RQ states to desired states
             rq_state = job.get_status(refresh=True)
             mapped_state = _map_rq_state_to_custom(rq_state)
-            return {"state": mapped_state, "meta": meta}
+            return {"job_id": job_id, "status": mapped_state}
 
     except Exception as e:
         # Job not found in Redis - this is normal for completed jobs that have been cleaned up
@@ -381,12 +407,12 @@ async def status(job_id: str):
         dir_contents = list(job_dir.iterdir())
         if dir_contents:
             # Job directory exists with content - job is likely queued or processing
-            return {"state": "queue", "message": "Job is queued or processing"}
+            return {"job_id": job_id, "status": "queued"}
         else:
             # Empty job directory - job may have been cleaned up
-            return {"state": "unknown", "error": f"Job directory exists but is empty: {job_id}"}
+            return {"job_id": job_id, "status": "unknown", "error": f"Job directory exists but is empty: {job_id}"}
     except Exception as e:
-        return {"state": "unknown", "error": f"Error checking job directory: {str(e)}"}
+        return {"job_id": job_id, "status": "unknown", "error": f"Error checking job directory: {str(e)}"}
 
 
 def _map_rq_state_to_custom(rq_state: str) -> str:
