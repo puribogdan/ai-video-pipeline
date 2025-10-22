@@ -298,7 +298,25 @@ def main():
         else:
             sys.exit(1)
 
+    # Get video duration after successful merge
+    def get_video_duration(file_path: Path) -> int:
+        """Get video duration in full seconds (integer)."""
+        try:
+            result = subprocess.run([
+                "ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                "-of", "csv=p=0", str(file_path)
+            ], capture_output=True, text=True)
+            if result.returncode == 0:
+                duration = float(result.stdout.strip())
+                return int(round(duration))  # Round to nearest second and convert to int
+            return 0
+        except Exception as e:
+            logger.warning(f"Could not get video duration: {e}")
+            return 0
+
+    video_duration = get_video_duration(FINAL_VIDEO)
     print(f"✅ Wrote: {FINAL_VIDEO}")
+    print(f"VIDEO_DURATION: {video_duration}")
 
 if __name__ == "__main__":
     main()

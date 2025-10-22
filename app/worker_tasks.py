@@ -1637,10 +1637,31 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
         # Record successful completion
         monitor.complete_job_tracking(job_id, "success")
 
+        # Get video duration from the merge script output
+        video_duration = None
+        try:
+            # Check if merge script printed VIDEO_DURATION: <seconds>
+            # This would be captured from the subprocess output, but for now we'll get it directly
+            import subprocess
+            result = subprocess.run([
+                "ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                "-of", "csv=p=0", str(public_path)
+            ], capture_output=True, text=True)
+            if result.returncode == 0:
+                duration_float = float(result.stdout.strip())
+                video_duration = int(round(duration_float))
+                log(f"[INFO] Video duration: {video_duration} seconds")
+        except Exception as e:
+            log(f"[WARNING] Could not get video duration: {e}")
+
         # Save completion status for persistent tracking
         try:
             from app.main import _save_job_completion
             completion_data = {"status": "done", "video_url": video_url}
+
+            # Add video_duration if available
+            if video_duration is not None:
+                completion_data["video_duration"] = video_duration
 
             # Add thumbnail_url if images were uploaded and scene_001.png exists
             if image_urls and 'scene_001.png' in image_urls:
