@@ -59,8 +59,6 @@ class OpenAIProvider:
                 input=input_text,
                 reasoning={"effort": "low"},
                 text={"verbosity": "low"},
-                # Pass through common generation params if provided
-                **{k: v for k, v in kwargs.items() if v is not None},
             )
             text = self._parse_output_text(result)
             try:
