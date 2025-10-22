@@ -10,7 +10,7 @@ redis==5.0.7
 rq==1.16.2
 python-dotenv==1.0.1
 resend==2.2.0
-openai>=1.40.0
+openai
 anthropic==0.68.0
 replicate==1.0.7
 tenacity==8.5.0

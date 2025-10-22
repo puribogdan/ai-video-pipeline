@@ -1,15 +1,18 @@
 # pipeline/providers/claude_provider.py
 import json
 import anthropic
+import time
 from typing import List, Dict, Any
 from .base import LLMProvider
 
 class ClaudeProvider(LLMProvider):
     """Claude API provider implementation"""
-    
-    def __init__(self, api_key: str):
+
+    def __init__(self, api_key: str, max_retries: int = 3, base_delay: float = 1.0):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = "claude-sonnet-4-5-20250929"
+        self.max_retries = max_retries
+        self.base_delay = base_delay
     
     def chat_json(self, messages: List[Dict], **kwargs) -> Dict:
         """
@@ -50,12 +53,34 @@ class ClaudeProvider(LLMProvider):
         if "temperature" in kwargs:
             request_params["temperature"] = kwargs["temperature"]
             
-        # Make the API call
-        try:
-            response = self.client.messages.create(**request_params)
-        except Exception as api_error:
-            print(f"[ERROR] Claude API call failed: {type(api_error).__name__}: {api_error}")
-            raise api_error
+        # Make the API call with retry mechanism
+        response = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self.client.messages.create(**request_params)
+                break  # Success, exit retry loop
+            except Exception as api_error:
+                error_type = type(api_error).__name__
+                error_msg = str(api_error)
+
+                # Check if it's an overloaded error (529)
+                if "529" in error_msg or "overloaded" in error_msg.lower():
+                    if attempt < self.max_retries:
+                        delay = self.base_delay * (2 ** attempt)  # Exponential backoff
+                        print(f"[WARNING] Claude API overloaded (attempt {attempt + 1}/{self.max_retries + 1}), retrying in {delay:.1f}s...")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        print(f"[ERROR] Claude API overloaded after {self.max_retries + 1} attempts")
+                        raise api_error
+                else:
+                    # For other errors, don't retry
+                    print(f"[ERROR] Claude API call failed: {error_type}: {error_msg}")
+                    raise api_error
+
+        # If we get here without response, it means all retries failed
+        if response is None:
+            raise RuntimeError("Failed to get response from Claude API after all retries")
 
         # Add detailed logging to debug the response
         print(f"[DEBUG] Claude API Response type: {type(response)}")
