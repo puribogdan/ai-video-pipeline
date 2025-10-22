@@ -228,7 +228,7 @@ def _run_with_retry(fn, *args, retries: int = 2, delay: float = 1.5, **kwargs):
                 raise last
 
 def run_nano_banana_t2i(prompt: str):
-    return _run_with_retry(replicate.run, NANO_BANANA_MODEL, input={"prompt": prompt})
+    return _run_with_retry(replicate.run, NANO_BANANA_MODEL, input={"prompt": prompt, "aspect_ratio": "16:9"})
 
 def run_nano_banana_edit(prompt: str, refs: List[Path]):
     files = []
@@ -239,7 +239,7 @@ def run_nano_banana_edit(prompt: str, refs: List[Path]):
         return _run_with_retry(
             replicate.run,
             NANO_BANANA_MODEL,
-            input={"prompt": prompt, "image_input": files},
+            input={"prompt": prompt, "image_input": files, "aspect_ratio": "16:9"},
         )
     finally:
         for f in files:
