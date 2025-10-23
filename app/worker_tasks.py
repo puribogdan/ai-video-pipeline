@@ -610,7 +610,7 @@ def _find_portrait_file(job_dir: Path) -> Optional[Path]:
     return None
 
 
-def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Path:
+def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tuple[Path, Optional[str]]:
     log(f"[DEBUG] _run_make_video called with job_dir={job_dir}, hint_audio={hint_audio}")
 
     # Debug: List all files in job directory before waiting
@@ -729,7 +729,7 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
     final_video = pipe_dir / "final_video.mp4"
     if not final_video.exists():
         raise RuntimeError("final_video.mp4 not produced by pipeline")
-    return final_video
+    return final_video, detected_language
 
 
 
@@ -1575,7 +1575,7 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
 
             # Record processing stage start
             processing_start = time.time()
-            final_video = _run_make_video(job_dir, hint_audio, style)
+            final_video, detected_language = _run_make_video(job_dir, hint_audio, style)
             processing_time = time.time() - processing_start
 
             # Record audio processing metrics
