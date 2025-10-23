@@ -772,6 +772,18 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
                 )
                 log(f"Uploaded input_script.json to: {script_key}")
 
+            # Upload input_subtitles.json
+            subtitles_path = job_dir / "pipeline" / "subtitles" / "input_subtitles.json"
+            if subtitles_path.exists():
+                subtitles_key = f"exports/{job_id}/input_subtitles.json"
+                s3.upload_file(
+                    str(subtitles_path),
+                    bucket_name,
+                    subtitles_key,
+                    ExtraArgs={'ContentType': 'application/json'}
+                )
+                log(f"Uploaded input_subtitles.json to: {subtitles_key}")
+
             # Upload existing prompt.json
             prompt_path = job_dir / "pipeline" / "scenes" / "prompt.json"
             if prompt_path.exists():
