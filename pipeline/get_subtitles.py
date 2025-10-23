@@ -24,10 +24,11 @@ Output:
 DEEPGRAM_URL = "https://api.deepgram.com/v1/listen"
 
 
-def simplify_words(dg_json: dict) -> tuple[str, list[dict]]:
-    """Extract {word, start, end} list + full transcript from Deepgram response."""
+def simplify_words(dg_json: dict) -> tuple[str, list[dict], str]:
+    """Extract {word, start, end} list + full transcript + detected language from Deepgram response."""
     words = []
     transcript = ""
+    detected_language = ""
     try:
         alt = dg_json["results"]["channels"][0]["alternatives"][0]
         transcript = alt.get("transcript", "")
@@ -37,9 +38,11 @@ def simplify_words(dg_json: dict) -> tuple[str, list[dict]]:
                 "start": float(w.get("start", 0.0)),
                 "end": float(w.get("end", 0.0)),
             })
+        # Extract detected language from metadata
+        detected_language = dg_json.get("metadata", {}).get("detected_language", "")
     except (KeyError, IndexError, TypeError):
         pass
-    return transcript, words
+    return transcript, words, detected_language
 
 
 @retry(wait=wait_exponential(multiplier=1, min=1, max=10), stop=stop_after_attempt(3))
@@ -101,12 +104,13 @@ def main() -> None:
     dg_json = deepgram_transcribe(mp3_bytes)
 
     print("🧹 Simplifying to word-level timestamps…", flush=True)
-    transcript, words = simplify_words(dg_json)
+    transcript, words, detected_language = simplify_words(dg_json)
 
     result = {
         "audio_file": str(input_path),
         "transcript": transcript,
         "words": words,
+        "detected_language": detected_language,
     }
     out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"✅ Wrote {len(words)} words to: {out_path}", flush=True)

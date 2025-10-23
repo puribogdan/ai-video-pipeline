@@ -368,6 +368,17 @@ async def status(job_id: str):
         except Exception as file_error:
             print(f"[WARNING] Failed to read completion file for job {job_id}: {file_error}", flush=True)
 
+    # Try to read language from subtitles if available
+    detected_language = None
+    try:
+        subtitles_path = job_dir / "pipeline" / "subtitles" / "input_subtitles.json"
+        if subtitles_path.exists():
+            with open(subtitles_path, 'r', encoding='utf-8') as f:
+                subtitles_data = json.load(f)
+                detected_language = subtitles_data.get("detected_language")
+    except Exception:
+        pass  # Silently ignore if subtitles not available yet
+
     # If no completion file, try Redis for active jobs
     rq_job_id = None
 
@@ -390,16 +401,25 @@ async def status(job_id: str):
         if job.is_finished:
             # Job completed successfully - save to file for persistence
             _save_job_completion(job_id, "done", job.result)
-            return {"job_id": job_id, "status": "done", "result_url": job.result.get("video_url")}
+            response = {"job_id": job_id, "status": "done", "result_url": job.result.get("video_url")}
+            if detected_language:
+                response["language"] = detected_language
+            return response
         elif job.is_failed:
             # Job failed - save to file for persistence
             _save_job_completion(job_id, "failed", {"error": str(job.exc_info)[:2000]})
-            return {"job_id": job_id, "status": "failed", "error": str(job.exc_info)[:2000]}
+            response = {"job_id": job_id, "status": "failed", "error": str(job.exc_info)[:2000]}
+            if detected_language:
+                response["language"] = detected_language
+            return response
         else:
             # Job still in progress - map RQ states to desired states
             rq_state = job.get_status(refresh=True)
             mapped_state = _map_rq_state_to_custom(rq_state)
-            return {"job_id": job_id, "status": mapped_state}
+            response = {"job_id": job_id, "status": mapped_state}
+            if detected_language:
+                response["language"] = detected_language
+            return response
 
     except Exception as e:
         # Job not found in Redis - this is normal for completed jobs that have been cleaned up
@@ -411,12 +431,21 @@ async def status(job_id: str):
         dir_contents = list(job_dir.iterdir())
         if dir_contents:
             # Job directory exists with content - job is likely queued or processing
-            return {"job_id": job_id, "status": "queued"}
+            response = {"job_id": job_id, "status": "queued"}
+            if detected_language:
+                response["language"] = detected_language
+            return response
         else:
             # Empty job directory - job may have been cleaned up
-            return {"job_id": job_id, "status": "unknown", "error": f"Job directory exists but is empty: {job_id}"}
+            response = {"job_id": job_id, "status": "unknown", "error": f"Job directory exists but is empty: {job_id}"}
+            if detected_language:
+                response["language"] = detected_language
+            return response
     except Exception as e:
-        return {"job_id": job_id, "status": "unknown", "error": f"Error checking job directory: {str(e)}"}
+        response = {"job_id": job_id, "status": "unknown", "error": f"Error checking job directory: {str(e)}"}
+        if detected_language:
+            response["language"] = detected_language
+        return response
 
 
 def _map_rq_state_to_custom(rq_state: str) -> str:
