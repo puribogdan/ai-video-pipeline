@@ -357,7 +357,7 @@ class AudioProcessingAdapter:
             # Get audio duration for estimation
             try:
                 audio = AudioSegment.from_file(file_path)
-                duration_seconds = len(audio) / 1000.0
+                duration_seconds = len(audio) / 1000.0 - 1.0
             except Exception:
                 duration_seconds = 0.0
 

@@ -1603,6 +1603,13 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
 
             log(f"Using video URL: {video_url}")
 
+            # Log detailed upload information after Backblaze upload
+            log(f"[UPLOAD_COMPLETE] Job {job_id} uploaded to Backblaze B2")
+            log(f"[UPLOAD_DETAILS] Video URL: {video_url}")
+            log(f"[UPLOAD_DETAILS] Upload time: {upload_time:.2f} seconds")
+            log(f"[UPLOAD_DETAILS] Video file size: {video_size} bytes")
+            log(f"[UPLOAD_DETAILS] B2 upload successful: {b2_url is not None}")
+
             # Upload generated images to B2
             images_dir = job_dir / "pipeline" / "images"
             if images_dir.exists() and images_dir.is_dir():
@@ -1697,6 +1704,12 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
             if detected_language:
                 completion_data["detected_language"] = detected_language
                 log(f"[INFO] Added detected language to completion data: {detected_language}")
+
+            # Log all completion data when status is "done"
+            log(f"[JOB_COMPLETE] Job {job_id} status set to 'done'")
+            log(f"[JOB_COMPLETE_DATA] Full completion data: {completion_data}")
+            for key, value in completion_data.items():
+                log(f"[JOB_COMPLETE_DATA] {key}: {value}")
 
             _save_job_completion(job_id, "done", completion_data)
         except Exception as e:
