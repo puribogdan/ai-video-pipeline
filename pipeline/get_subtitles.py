@@ -38,8 +38,8 @@ def simplify_words(dg_json: dict) -> tuple[str, list[dict], str]:
                 "start": float(w.get("start", 0.0)),
                 "end": float(w.get("end", 0.0)),
             })
-        # Extract detected language from metadata
-        detected_language = dg_json.get("metadata", {}).get("detected_language", "")
+        # Extract detected language from results.channels[0]
+        detected_language = dg_json.get("results", {}).get("channels", [{}])[0].get("detected_language", "")
     except (KeyError, IndexError, TypeError):
         pass
     return transcript, words, detected_language
