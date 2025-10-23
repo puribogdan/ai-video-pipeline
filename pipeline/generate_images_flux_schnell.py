@@ -47,6 +47,22 @@ IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 MANIFEST     = SCENES_DIR / "manifest.json"
 PROMPT_JSON  = SCENES_DIR / "prompt.json"
 
+# -------------------- Logging Setup --------------------
+LOG_DIR = ROOT / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = LOG_DIR / "image_generation.log"
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
 # -------------------- Style Library --------------------
 STYLE_LIBRARY: Dict[str, str] = {
     "kid_friendly_cartoon": "A cartoon style inspired by Nickelodeon and Cartoon Network classics. Preserve bright colors, rounded character designs, and exaggerated playful expressions. Preserve the exact style and subject from the start frame.",
