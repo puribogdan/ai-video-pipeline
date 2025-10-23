@@ -371,7 +371,7 @@ async def status(job_id: str):
     # Try to read language from subtitles if available
     detected_language = None
     try:
-        subtitles_path = job_dir / "pipeline" / "subtitles" / "input_subtitles.json"
+        subtitles_path = job_dir / "input_subtitles.json"
         if subtitles_path.exists():
             with open(subtitles_path, 'r', encoding='utf-8') as f:
                 subtitles_data = json.load(f)
