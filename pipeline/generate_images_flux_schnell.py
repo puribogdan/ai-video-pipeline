@@ -14,10 +14,11 @@
 # - Saves native PNGs, logs prompts to scenes/prompt.json
 
 from __future__ import annotations
-import os, io, sys, json, argparse, contextlib, time, hashlib
+import os, io, sys, json, argparse, contextlib, time, hashlib, logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from shutil import copy2
+from datetime import datetime
 
 import requests
 from dotenv import load_dotenv
@@ -214,8 +215,8 @@ Ensure the person from image[0] integrates naturally into the environment withou
     else:
         return f"SCENE BRIEF: {desc}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
 
-# -------------------- Model calls (with tiny retry) --------------------
-def _run_with_retry(fn, *args, retries: int = 2, delay: float = 1.5, **kwargs):
+# -------------------- Model calls (with enhanced retry) --------------------
+def _run_with_retry(fn, *args, retries: int = 3, delay: float = 1.5, **kwargs):
     last = None
     for attempt in range(retries + 1):
         try:
@@ -226,6 +227,70 @@ def _run_with_retry(fn, *args, retries: int = 2, delay: float = 1.5, **kwargs):
                 time.sleep(delay * (attempt + 1))
             else:
                 raise last
+
+def log_image_generation_event(scene_id, event_type, message, **kwargs):
+    """Log detailed image generation events for debugging"""
+    timestamp = datetime.now().isoformat()
+    log_entry = {
+        "timestamp": timestamp,
+        "scene_id": scene_id,
+        "event_type": event_type,
+        "message": message,
+        **kwargs
+    }
+    logger.info(f"IMAGE_GENERATION - {json.dumps(log_entry)}")
+
+def generate_scene_with_retry(scene_data, scene_id, out_path, job_id, max_scene_retries=2):
+    """Generate a single scene with visible retry logging"""
+
+    for scene_attempt in range(max_scene_retries):
+        try:
+            log_image_generation_event(scene_id, "generation_start", f"Starting generation attempt {scene_attempt + 1}/{max_scene_retries}",
+                                     mode=scene_data["mode"], prompt_length=len(scene_data["prompt"]),
+                                     refs_count=len(scene_data["refs"]) if scene_data["refs"] else 0)
+            print(f"🖼️  Scene {scene_id}: Starting generation (attempt {scene_attempt + 1}/{max_scene_retries})")
+
+            # Generate the image
+            if scene_data["mode"] == "t2i":
+                out = run_nano_banana_t2i(scene_data["prompt"])
+            else:  # edit mode
+                out = run_nano_banana_edit(scene_data["prompt"], scene_data["refs"])
+
+            print(f"📸 Scene {scene_id}: Generation submitted, downloading...")
+
+            # Download and process the image
+            data = outputs_to_image_bytes(out)
+
+            if data and len(data) > 1024:
+                log_image_generation_event(scene_id, "generation_success", f"Succeeded on attempt {scene_attempt + 1}",
+                                         data_size=len(data), attempt=scene_attempt + 1)
+                print(f"✅ Scene {scene_id}: Succeeded on attempt {scene_attempt + 1}")
+                save_image_with_b2_backup(out_path, data, job_id)
+                return data
+            else:
+                log_image_generation_event(scene_id, "generation_failure", f"Generated data too small: {len(data) if data else 0} bytes",
+                                         attempt=scene_attempt + 1, data_size=len(data) if data else 0)
+                print(f"⚠️  Scene {scene_id}: Generated data too small ({len(data) if data else 0} bytes)")
+                raise RuntimeError("Generated image too small")
+
+        except Exception as e:
+            error_msg = str(e)
+            log_image_generation_event(scene_id, "generation_failure", f"Attempt {scene_attempt + 1} failed: {error_msg}",
+                                     attempt=scene_attempt + 1, error_type=type(e).__name__)
+            print(f"❌ Scene {scene_id}: Attempt {scene_attempt + 1} failed: {e}")
+
+            if scene_attempt < max_scene_retries - 1:
+                delay = 10 * (2 ** scene_attempt)  # 10s, 20s
+                print(f"⏳ Scene {scene_id}: Retrying in {delay}s...")
+                time.sleep(delay)
+                continue
+            else:
+                log_image_generation_event(scene_id, "generation_final_failure", f"All {max_scene_retries} attempts failed",
+                                         total_attempts=max_scene_retries, final_error=error_msg)
+                print(f"💀 Scene {scene_id}: All {max_scene_retries} attempts failed")
+                raise e
+
+    return None
 
 def run_nano_banana_t2i(prompt: str):
     return _run_with_retry(replicate.run, NANO_BANANA_MODEL, input={"prompt": prompt, "aspect_ratio": "16:9"})
@@ -362,6 +427,9 @@ def main():
         refs = []  # Initialize refs to avoid unbound variable
 
         try:
+            # Prepare scene data for retry function
+            scene_data = {}
+
             if portrait_path:
                 # Use portrait_cutout for all scenes when portrait is present
                 if i == 1:
@@ -380,8 +448,12 @@ def main():
 
                 # Use portrait identity prompt block for every scene
                 prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=True)
-                out = run_nano_banana_edit(prompt, refs)
                 mode = "edit"
+                scene_data = {
+                    "mode": mode,
+                    "prompt": prompt,
+                    "refs": refs
+                }
                 prompt_log[sid] = {
                     "mode": mode,
                     "model": NANO_BANANA_MODEL,
@@ -396,8 +468,12 @@ def main():
                 # No portrait
                 if i == 1:
                     prompt = build_scene1_prompt(desc=desc, style_line=style_line, has_portrait=False)
-                    out = run_nano_banana_t2i(prompt)
                     mode = "t2i"
+                    scene_data = {
+                        "mode": mode,
+                        "prompt": prompt,
+                        "refs": []
+                    }
                     prompt_log[sid] = {
                         "mode": mode,
                         "model": NANO_BANANA_MODEL,
@@ -418,8 +494,12 @@ def main():
                         refs = [prev_png]
 
                     prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=False)
-                    out = run_nano_banana_edit(prompt, refs)
                     mode = "edit"
+                    scene_data = {
+                        "mode": mode,
+                        "prompt": prompt,
+                        "refs": refs
+                    }
                     prompt_log[sid] = {
                         "mode": mode,
                         "model": NANO_BANANA_MODEL,
@@ -430,21 +510,27 @@ def main():
                         "style_line": style_line,
                     }
 
-            data = outputs_to_image_bytes(out)
-            if not data:
-                print(f"DEBUG output type: {type(out)}; sample: {str(out)[:200]}")
-                raise RuntimeError(f"No usable image bytes in model output (scene {sid}).")
+            # 🎯 Use scene-level retry function
+            scene_bytes = generate_scene_with_retry(scene_data, sid, out_path, job_id, max_scene_retries=2)
 
-            save_image_with_b2_backup(out_path, data, job_id)
+            if scene_bytes:
+                if i == 1 and ref_png is None:
+                    ref_png = out_path
+                prev_png = out_path
 
-            if i == 1 and ref_png is None:
-                ref_png = out_path
-            prev_png = out_path
-
-            entry: Dict[str, Any] = {"image_path": str(out_path), "mode": mode}
-            if mode == "edit" and 'refs' in locals():
-                entry["edit_refs"] = [str(p) for p in refs]
-            manifest[sid] = entry
+                entry: Dict[str, Any] = {"image_path": str(out_path), "mode": mode}
+                if mode == "edit" and refs:
+                    entry["edit_refs"] = [str(p) for p in refs]
+                manifest[sid] = entry
+            else:
+                print(f"⚠️  Scene {sid}: Skipped - all retries failed")
+                # Create placeholder for failed scene
+                placeholder = Image.new("RGB", (64, 64), (220, 220, 220))
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                placeholder.save(out_path, "PNG")
+                if i == 1 and ref_png is None:
+                    ref_png = out_path
+                manifest[sid] = {"image_path": str(out_path), "error": "All retry attempts failed"}
 
         except Exception as e:
             print(f"⚠️  Scene {sid} failed: {e}")
