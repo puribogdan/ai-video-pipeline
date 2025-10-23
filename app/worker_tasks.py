@@ -1666,6 +1666,19 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
         except Exception as e:
             log(f"[WARNING] Could not get video duration: {e}")
 
+        # Extract detected language from input_subtitles.json if available
+        detected_language = None
+        try:
+            subtitles_path = job_dir / "input_subtitles.json"
+            if subtitles_path.exists():
+                with open(subtitles_path, 'r', encoding='utf-8') as f:
+                    subtitles_data = json.load(f)
+                    detected_language = subtitles_data.get("detected_language")
+                    if detected_language:
+                        log(f"[INFO] Extracted detected language: {detected_language}")
+        except Exception as e:
+            log(f"[WARNING] Failed to extract detected language: {e}")
+
         # Save completion status for persistent tracking
         try:
             from app.main import _save_job_completion
@@ -1679,6 +1692,11 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
             if image_urls and 'scene_001.png' in image_urls:
                 completion_data["thumbnail_url"] = image_urls['scene_001.png']
                 log(f"[INFO] Added thumbnail_url to completion data: {completion_data['thumbnail_url']}")
+
+            # Add detected language if available
+            if detected_language:
+                completion_data["detected_language"] = detected_language
+                log(f"[INFO] Added detected language to completion data: {detected_language}")
 
             _save_job_completion(job_id, "done", completion_data)
         except Exception as e:

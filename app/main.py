@@ -368,16 +368,25 @@ async def status(job_id: str):
         except Exception as file_error:
             print(f"[WARNING] Failed to read completion file for job {job_id}: {file_error}", flush=True)
 
-    # Try to read language from subtitles if available
+    # Try to read language from completion status first, then subtitles file as fallback
     detected_language = None
     try:
-        subtitles_path = job_dir / "input_subtitles.json"
-        if subtitles_path.exists():
-            with open(subtitles_path, 'r', encoding='utf-8') as f:
-                subtitles_data = json.load(f)
-                detected_language = subtitles_data.get("detected_language")
+        # First check completion status for persisted language
+        completion_file = job_dir / "completion_status.json"
+        if completion_file.exists():
+            with open(completion_file, 'r') as f:
+                completion_data = json.load(f)
+                detected_language = completion_data.get("result", {}).get("detected_language")
+
+        # Fallback to reading from subtitles file if not in completion status
+        if not detected_language:
+            subtitles_path = job_dir / "input_subtitles.json"
+            if subtitles_path.exists():
+                with open(subtitles_path, 'r', encoding='utf-8') as f:
+                    subtitles_data = json.load(f)
+                    detected_language = subtitles_data.get("detected_language")
     except Exception:
-        pass  # Silently ignore if subtitles not available yet
+        pass  # Silently ignore if files not available yet
 
     # If no completion file, try Redis for active jobs
     rq_job_id = None
@@ -404,6 +413,7 @@ async def status(job_id: str):
             response = {"job_id": job_id, "status": "done", "result_url": job.result.get("video_url")}
             if detected_language:
                 response["language"] = detected_language
+            print(f"[status] Response: {response}", flush=True)
             return response
         elif job.is_failed:
             # Job failed - save to file for persistence
