@@ -696,8 +696,35 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> Pa
     if trim_extra:
         env["TRIM_EXTRA_ARGS"] = trim_extra
 
-    cmd = [sys.executable, "make_video.py", "--job-id", job_dir.name]
-    run_with_live_output(cmd, cwd=pipe_dir, env=env, timeout=5400)  # 90 minute timeout
+    # Capture detected language from pipeline output
+    detected_language = None
+    log(f"RUN: {' '.join([sys.executable, 'make_video.py', '--job-id', job_dir.name])}")
+    proc = subprocess.Popen(
+        [sys.executable, "make_video.py", "--job-id", job_dir.name],
+        cwd=str(pipe_dir), env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace",
+    )
+    assert proc.stdout is not None
+    tail = deque(maxlen=200)
+
+    try:
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+            tail.append(line.rstrip())
+            # Capture detected language from pipeline output
+            if "PIPELINE_DETECTED_LANGUAGE:" in line:
+                detected_language = line.split("PIPELINE_DETECTED_LANGUAGE:", 1)[1].strip()
+                log(f"[INFO] Captured detected language from pipeline: {detected_language}")
+
+        ret = proc.wait(timeout=5400)
+        if ret != 0:
+            raise RuntimeError("make_video.py failed (exit %d)\n--- tail ---\n%s" % (ret, "\n".join(tail)))
+    except subprocess.TimeoutExpired:
+        log(f"Process timed out after 5400 seconds, terminating...")
+        proc.kill()
+        proc.wait()
+        raise RuntimeError(f"make_video.py timed out after 5400 seconds")
 
     final_video = pipe_dir / "final_video.mp4"
     if not final_video.exists():
@@ -1673,18 +1700,11 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
         except Exception as e:
             log(f"[WARNING] Could not get video duration: {e}")
 
-        # Extract detected language from input_subtitles.json if available
-        detected_language = None
-        try:
-            subtitles_path = job_dir / "input_subtitles.json"
-            if subtitles_path.exists():
-                with open(subtitles_path, 'r', encoding='utf-8') as f:
-                    subtitles_data = json.load(f)
-                    detected_language = subtitles_data.get("detected_language")
-                    if detected_language:
-                        log(f"[INFO] Extracted detected language: {detected_language}")
-        except Exception as e:
-            log(f"[WARNING] Failed to extract detected language: {e}")
+        # Log detected language status
+        if detected_language:
+            log(f"[INFO] Using detected language from pipeline: {detected_language}")
+        else:
+            log(f"[WARNING] No detected language captured from pipeline")
 
         # Save completion status for persistent tracking
         try:

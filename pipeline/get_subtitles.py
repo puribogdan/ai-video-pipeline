@@ -115,6 +115,10 @@ def main() -> None:
     out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"✅ Wrote {len(words)} words to: {out_path}", flush=True)
 
+    # Print detected language for worker to capture
+    if detected_language:
+        print(f"DETECTED_LANGUAGE: {detected_language}", flush=True)
+
 
 if __name__ == "__main__":
     main()

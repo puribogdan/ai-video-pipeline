@@ -201,7 +201,36 @@ def main():
             raise SystemExit("skip-subtitles set, but no subtitles file.")
     else:
         if args.force or not SUBS_FILE.exists():
-            run("python get_subtitles.py", cwd=ROOT, extra_env=child_env)
+            # Capture output to extract detected language
+            detected_language = None
+            log(f"RUN: python get_subtitles.py")
+            env = os.environ.copy()
+            env.setdefault("PYTHONIOENCODING", "utf-8")
+            env.update(child_env)
+            proc = subprocess.Popen(
+                "python get_subtitles.py",
+                cwd=str(ROOT),
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+            )
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                print(line, end="")
+                # Capture detected language from output
+                if line.strip().startswith("DETECTED_LANGUAGE:"):
+                    detected_language = line.strip().split("DETECTED_LANGUAGE:", 1)[1].strip()
+            ret = proc.wait()
+            if ret != 0:
+                raise RuntimeError(f"get_subtitles.py failed ({ret})")
+
+            # Print detected language for worker to capture
+            if detected_language:
+                print(f"PIPELINE_DETECTED_LANGUAGE: {detected_language}", flush=True)
         else:
             log("Subtitles already exist; skipping.")
 
