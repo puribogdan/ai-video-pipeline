@@ -204,7 +204,7 @@ If the story's main subject is non-human (for example, an animal, vehicle, or la
 include the person from image[0] as a supporting or background character interacting naturally with the scene,
 but do not make them the main focus.
 
-Maintain consistent clothing, lighting, and visual style from image[0] across all scenes.
+
 Match the overall scene layout, mood, and direction to image[1].
 Ensure the person from image[0] integrates naturally into the environment without duplication."""
         return f"{desc}\n{portrait_prompt}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
@@ -224,7 +224,7 @@ If the story's main subject is non-human (for example, an animal, vehicle, or la
 include the person from image[0] as a supporting or background character interacting naturally with the scene,
 but do not make them the main focus.
 
-Maintain consistent clothing, lighting, and visual style from image[0] across all scenes.
+
 Match the overall scene layout, mood, and direction to image[1].
 Ensure the person from image[0] integrates naturally into the environment without duplication."""
         return f"SCENE BRIEF: {desc}\n{portrait_prompt}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
