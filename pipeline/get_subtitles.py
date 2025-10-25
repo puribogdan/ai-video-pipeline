@@ -8,6 +8,8 @@ import requests
 from tenacity import retry, wait_exponential, stop_after_attempt
 from config import settings  # loads DEEPGRAM_API_KEY from .env
 
+from get_vtt_subtitle import convert_json_to_vtt
+
 """
 Usage:
   python get_subtitles.py
@@ -114,6 +116,18 @@ def main() -> None:
     }
     out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
     print(f"✅ Wrote {len(words)} words to: {out_path}", flush=True)
+
+    # Generate VTT from the same result
+    vtt_text = convert_json_to_vtt(result)
+
+    # Write VTT to the same folder
+    vtt_out = project_root / "subtitles" / "final.en.vtt"
+    vtt_out.parent.mkdir(parents=True, exist_ok=True)
+    vtt_out.write_text(vtt_text, encoding="utf-8")
+
+    # Print both paths for the next pipeline step to read
+    print(f"JSON_PATH: {out_path}")
+    print(f"VTT_PATH: {vtt_out}")
 
     # Print detected language for worker to capture
     if detected_language:

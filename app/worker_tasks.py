@@ -739,8 +739,8 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tu
     retry=retry_if_exception_type((ClientError, Exception)),
     reraise=True
 )
-def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) -> Optional[str]:
-    """Upload video, scripts, and portrait images to Backblaze B2 (S3-compatible) and return public URL, or None on failure."""
+def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None, vtt_local_path: Optional[Path] = None) -> Optional[Dict[str, str]]:
+    """Upload video, scripts, and portrait images to Backblaze B2 (S3-compatible) and return public URLs, or None on failure."""
     bucket_name = os.getenv("B2_BUCKET_NAME")
     key_id = os.getenv("B2_KEY_ID")
     app_key = os.getenv("B2_APPLICATION_KEY")
@@ -784,6 +784,37 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
             ExtraArgs={'ContentType': 'video/mp4'}
         )
         log("[DEBUG] Upload call completed.")
+
+        # Upload VTT subtitle file if provided
+        if vtt_local_path and vtt_local_path.exists():
+            vtt_key = f"vtts/{job_id}.vtt"
+            try:
+                s3.upload_file(
+                    Filename=str(vtt_local_path),
+                    Bucket=bucket_name,
+                    Key=vtt_key,
+                    ExtraArgs={'ContentType': 'text/vtt; charset=utf-8'}
+                )
+                vtt_url = f"https://{bucket_name}.s3.{region}.backblazeb2.com/{vtt_key}"
+                log(f"VTT_URL: {vtt_url}")
+
+                # Optional sanity check: verify ContentType
+                try:
+                    head_response = s3.head_object(Bucket=bucket_name, Key=vtt_key)
+                    actual_content_type = head_response.get('ContentType', 'unknown')
+                    if actual_content_type != 'text/vtt; charset=utf-8':
+                        log(f"[WARNING] VTT ContentType mismatch: expected 'text/vtt; charset=utf-8', got '{actual_content_type}'")
+                    else:
+                        log(f"[DEBUG] VTT ContentType verified: {actual_content_type}")
+                except ClientError as head_e:
+                    log(f"[WARNING] Could not verify VTT ContentType: {head_e.response['Error']['Message']}")
+
+            except Exception as vtt_e:
+                log(f"[WARNING] Failed to upload VTT file {vtt_local_path}: {vtt_e}")
+        elif vtt_local_path:
+            log(f"[DEBUG] VTT not found, skipping: {vtt_local_path}")
+        else:
+            log("[DEBUG] No VTT path provided, skipping VTT upload")
 
         # Upload input_script.json and prompt.json if job_dir provided
         if job_dir:
@@ -916,10 +947,15 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None) 
 
         log("Upload successful.")
 
-        # Construct public URL (assuming public bucket)
+        # Construct public URLs (assuming public bucket)
         video_url = f"https://{bucket_name}.s3.{region}.backblazeb2.com/exports/{job_id}/final_video.mp4"
         log(f"Uploaded to B2: {video_url}")
-        return video_url
+
+        # Return URLs as dictionary
+        urls = {"video_url": video_url}
+        if vtt_local_path and vtt_local_path.exists():
+            urls["vtt_url"] = vtt_url
+        return urls
 
     except Exception as e:
         import traceback
@@ -1618,24 +1654,35 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
 
         # Upload to Backblaze B2 (with fallback to local)
         upload_start = time.time()
+        vtt_url = None
+        image_urls = None
+        video_size = 0
         try:
-            b2_url = upload_to_b2(job_id, public_path, job_dir)
-            video_url = b2_url or f"{BASE_URL}/media/{job_id}.mp4"
+            vtt_local_path = job_dir / "pipeline" / "subtitles" / "final.en.vtt"
+            b2_urls = upload_to_b2(job_id, public_path, job_dir, vtt_local_path=vtt_local_path)
+            if b2_urls:
+                video_url = b2_urls["video_url"]
+                vtt_url = b2_urls.get("vtt_url")
+            else:
+                video_url = f"{BASE_URL}/media/{job_id}.mp4"
             upload_time = time.time() - upload_start
 
             # Record upload metrics
             if public_path.exists():
                 video_size = public_path.stat().st_size
-                monitor.record_upload_metrics(video_size, upload_time, b2_url is not None)
+                monitor.record_upload_metrics(video_size, upload_time, b2_urls is not None)
 
             log(f"Using video URL: {video_url}")
+            if vtt_url:
+                log(f"Using VTT URL: {vtt_url}")
 
             # Log detailed upload information after Backblaze upload
             log(f"[UPLOAD_COMPLETE] Job {job_id} uploaded to Backblaze B2")
             log(f"[UPLOAD_DETAILS] Video URL: {video_url}")
+            log(f"[UPLOAD_DETAILS] VTT URL: {vtt_url}")
             log(f"[UPLOAD_DETAILS] Upload time: {upload_time:.2f} seconds")
             log(f"[UPLOAD_DETAILS] Video file size: {video_size} bytes")
-            log(f"[UPLOAD_DETAILS] B2 upload successful: {b2_url is not None}")
+            log(f"[UPLOAD_DETAILS] B2 upload successful: {b2_urls is not None}")
 
             # Upload generated images to B2
             images_dir = job_dir / "pipeline" / "images"
@@ -1709,14 +1756,19 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
         # Save completion status for persistent tracking
         try:
             from app.main import _save_job_completion
-            completion_data = {"status": "done", "video_url": video_url}
+            completion_data = {"video_url": video_url}
+
+            # Add vtt_url if available
+            if vtt_url:
+                completion_data["vtt_url"] = vtt_url
+                log(f"[INFO] Added vtt_url to completion data: {vtt_url}")
 
             # Add video_duration if available
             if video_duration is not None:
-                completion_data["video_duration"] = video_duration
+                completion_data["video_duration"] = str(video_duration)
 
             # Add thumbnail_url if images were uploaded and scene_001.png exists
-            if image_urls and 'scene_001.png' in image_urls:
+            if 'image_urls' in locals() and image_urls and 'scene_001.png' in image_urls:
                 completion_data["thumbnail_url"] = image_urls['scene_001.png']
                 log(f"[INFO] Added thumbnail_url to completion data: {completion_data['thumbnail_url']}")
 

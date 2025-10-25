@@ -364,6 +364,11 @@ async def status(job_id: str):
                     response["video_duration"] = completion_data["result"]["video_duration"]
                 if completion_data["result"].get("detected_language"):
                     response["language"] = completion_data["result"]["detected_language"]
+                # Add vtt_url if available
+                if completion_data["result"].get("vtt_url"):
+                    response["vtt_url"] = completion_data["result"]["vtt_url"]
+                else:
+                    response["vtt_url"] = None
             elif completion_data.get("state") == "failed":
                 response["error"] = completion_data.get("result", {}).get("error", "Unknown error")
             return response
@@ -420,7 +425,7 @@ async def status(job_id: str):
         elif job.is_failed:
             # Job failed - save to file for persistence
             _save_job_completion(job_id, "failed", {"error": str(job.exc_info)[:2000]})
-            response = {"job_id": job_id, "status": "failed", "error": str(job.exc_info)[:2000]}
+            response = {"job_id": job_id, "status": "failed", "error": str(job.exc_info)[:2000], "vtt_url": None}
             if detected_language:
                 response["language"] = detected_language
             return response
@@ -428,7 +433,7 @@ async def status(job_id: str):
             # Job still in progress - map RQ states to desired states
             rq_state = job.get_status(refresh=True)
             mapped_state = _map_rq_state_to_custom(rq_state)
-            response = {"job_id": job_id, "status": mapped_state}
+            response = {"job_id": job_id, "status": mapped_state, "vtt_url": None}
             if detected_language:
                 response["language"] = detected_language
             return response
@@ -443,18 +448,18 @@ async def status(job_id: str):
         dir_contents = list(job_dir.iterdir())
         if dir_contents:
             # Job directory exists with content - job is likely queued or processing
-            response = {"job_id": job_id, "status": "queued"}
+            response = {"job_id": job_id, "status": "queued", "vtt_url": None}
             if detected_language:
                 response["language"] = detected_language
             return response
         else:
             # Empty job directory - job may have been cleaned up
-            response = {"job_id": job_id, "status": "unknown", "error": f"Job directory exists but is empty: {job_id}"}
+            response = {"job_id": job_id, "status": "unknown", "error": f"Job directory exists but is empty: {job_id}", "vtt_url": None}
             if detected_language:
                 response["language"] = detected_language
             return response
     except Exception as e:
-        response = {"job_id": job_id, "status": "unknown", "error": f"Error checking job directory: {str(e)}"}
+        response = {"job_id": job_id, "status": "unknown", "error": f"Error checking job directory: {str(e)}", "vtt_url": None}
         if detected_language:
             response["language"] = detected_language
         return response
