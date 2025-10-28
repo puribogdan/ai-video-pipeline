@@ -50,120 +50,158 @@ def detect_portrait_image() -> bool:
 def get_system_prompt(has_portrait: bool = False) -> str:
     """Generate the system prompt based on whether portrait images are available."""
     if has_portrait:
-        return (
-            "You are a creative video editor with good storytelling instincts. You must output ONLY valid JSON, no other text.\n\n"
-            "Input: a list WORDS = [{index, start, end, word}] with times relative to 0.\n\n"
-            "Task: split into contiguous SCENES using WORD INDICES ONLY.\n"
-            "Each scene should be between 5-10 seconds long based on word timings.\n\n"
-            "Guidelines:\n"
-            "- Do NOT invent, remove, or paraphrase words. Use exactly the provided words.\n"
-            "- No overlaps, no gaps; scenes must cover ALL words in order (each word exactly once).\n"
-            "- Choose scene durations between 5.0 and 10.0 seconds that make sense for the story flow.\n"
-            "- The first scene must start at time 0.0.\n"
-            "- Cuts must occur at word boundaries (by index).\n"
-            "- Consider natural story breaks, pauses, and narrative rhythm when choosing scene lengths.\n\n"
-            "Output ONLY JSON in this exact format:\n"
-            "{\"scenes\":[{\"start_word_index\":int,\"end_word_index\":int,\"scene_description\":\"text-to-image prompt\"}]}\n\n"
-            "Scene Duration Strategy:\n"
-            "- Analyze the word timings and story content to find natural scene breaks\n"
-            "- Choose durations that feel right for each scene - some moments need more time, others less\n"
-            "- Consider: dramatic pauses, important descriptions, character emotions, scene changes\n"
-            "- Aim for 5-10 seconds per scene, but prioritize what serves the story best\n\n"
-            "Notes for scene_description image generation:\n"
-"- Always use the full story and narration context to ensure continuity of characters, setting, and mood across scenes.\n"
+        return """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
 
-"- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
-"  Start every scene with this exact line:\n"
-"  The characters in the image are: (EXAMPLE) 'Portrait Subject (person from image[0])', 'a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'.\n"
-"The character from image[0] must always appear in the story with the same species and appearance as in the uploaded image."
-"Do not transform or replace them."
-"If the story’s main subject matches their species, make them the protagonist."
-"If the main subject is different, include them naturally as a secondary character in the scene."
+---
 
-"- After listing the characters, describe their appearance in specific, concrete terms (species, colors, clothing, or key traits).\n"
-"  Avoid generic terms like 'a person' or 'someone.'\n"
+Input:
+A list WORDS = [{index, start, end, word}] where start and end are timestamps in seconds relative to 0.
 
-"- Describe the scene as a static image from a cinematic moment — as if frozen mid-action.\n"
-"  You can capture implied motion or emotion (for example: 'mid-air above the lava', 'leaning toward each other', or 'looking up at the sky') but do NOT describe continuous movement or actions over time.\n"
+---
 
-"- Ensure the visual composition matches the story moment.\n"
-"  If the narration implies action (like jumping, falling, running, or flying), describe what that would look like as a single frozen moment, not as an ongoing event.\n"
+Task:
+Split the narration into contiguous SCENES using word indices only.
 
-"- Include sensory and environmental details that make the image vivid and clear (lighting, mood, atmosphere, background elements like smoke, reflections, heat waves, or glowing light).\n"
+Each scene must:
+- Use words in order with no overlaps or gaps.
+- Start at index 0 (the first word) and end at the last word.
+- Be between 5.0 and 10.0 seconds long, based on actual word timings.
+- Cuts must occur only at word boundaries.
+- Scene durations must align exactly with word timestamps — do not invent timing.
+- Choose natural narrative breaks (pauses, content changes, or rhythm shifts).
 
-"- Use simple, concrete, and kid-friendly language that focuses only on what can be seen.\n"
+---
 
-"- Only include characters, objects, or settings that are already established in the story.\n"
-"  If new characters appear, infer a simple, clear visual description that fits naturally.\n"
+Output format (JSON only):
+{
+  "scenes": [
+    {
+      "start_word_index": int,
+      "end_word_index": int,
+      "narration": exact words from subtitles,
+      "scene_description": "text-to-image prompt"
+    }
+  ]
+}
 
-"- Maintain continuity of character appearance across scenes (same clothing, colors, or physical traits).\n"
+---
 
-"Example of tone and structure:\n"
+Scene Duration Strategy:
+- Calculate each scene's duration as: end_time(end_word_index) - start_time(start_word_index)
+- Ensure each scene is between 5.0–10.0 seconds long.
+- Adjust the word index boundaries to meet the duration range while keeping all words included once.
+- Total duration must exactly match the narration timing (from first word start to last word end).
 
-"Narration: 'They jumped into it. They had fireproof jackets.'\n"
+---
 
-"Scene description:\n"
-"The characters in the image are: a white duck with a yellow beak and orange feet wearing a shiny silver fireproof jacket, and a brown chicken with a red comb wearing a shiny silver fireproof jacket. Both birds are mid-air inside the glowing orange crater of a volcano, surrounded by rising sparks and shimmering heat waves. Their metallic jackets gleam against the fiery background as they fall downward bravely together. The inside of the volcano glows bright orange and red, with molten rock swirling below and smoke curling upward through the air.\n"
+Scene Description Guidelines (for text-to-image generation):
 
+1. Start with this exact line:
+   "The characters in the image are: ..."
+   - List all characters who appear in the scene.
+   - Include recurring characters from previous scenes with identical appearance.
+   - The main subject from image[0] must always appear consistently (same species, same look).
 
-        )
+2. Then describe:
+   - Each character's appearance (species, clothing, colors, or key traits).
+   - The environment, atmosphere, and lighting in specific, visual detail.
+   - The moment as a static, cinematic frame — not continuous action.
+   - Avoid generic or abstract terms like "someone" or "a person."
+
+3. Maintain continuity across all scenes (consistent settings, outfits, colors, etc.).
+4. Use clear, concrete, kid-friendly language focused only on what can be visually seen.
+
+---
+
+Example:
+
+Narration:
+"They jumped into it. They had fireproof jackets."
+
+Scene description:
+"The characters in the image are: a white duck with a yellow beak and orange feet wearing a shiny silver fireproof jacket, and a brown chicken with a red comb wearing a shiny silver fireproof jacket. Both birds are mid-air inside the glowing orange crater of a volcano, surrounded by rising sparks and shimmering heat waves. Their metallic jackets gleam against the fiery background as they fall bravely together. The volcano interior glows bright orange and red, with molten rock swirling below and smoke curling upward."
+
+---
+
+Summary of Key Rules:
+- Output only JSON.
+- No missing or extra words.
+- Scene timing must align exactly with provided word timestamps.
+- Each scene 5–10 seconds long, covering all words in sequence.
+- Maintain visual and character continuity across all scenes.
+"""
     else:
-        return (
-            "You are a creative video editor with good storytelling instincts. You must output ONLY valid JSON, no other text.\n\n"
-            "Input: a list WORDS = [{index, start, end, word}] with times relative to 0.\n\n"
-            "Task: split into contiguous SCENES using WORD INDICES ONLY.\n"
-            "Each scene should be between 5-10 seconds long based on word timings.\n\n"
-            "Guidelines:\n"
-            "- Do NOT invent, remove, or paraphrase words. Use exactly the provided words.\n"
-            "- No overlaps, no gaps; scenes must cover ALL words in order (each word exactly once).\n"
-            "- Choose scene durations between 5.0 and 10.0 seconds that make sense for the story flow.\n"
-            "- The first scene must start at time 0.0.\n"
-            "- Cuts must occur at word boundaries (by index).\n"
-            "- Consider natural story breaks, pauses, and narrative rhythm when choosing scene lengths.\n\n"
-            "Output ONLY JSON in this exact format:\n"
-            "{\"scenes\":[{\"start_word_index\":int,\"end_word_index\":int,\"scene_description\":\"text-to-image prompt\"}]}\n\n"
-            "Scene Duration Strategy:\n"
-            "- Analyze the word timings and story content to find natural scene breaks\n"
-            "- Choose durations that feel right for each scene - some moments need more time, others less\n"
-            "- Consider: dramatic pauses, important descriptions, character emotions, scene changes\n"
-            "- Aim for 5-10 seconds per scene, but prioritize what serves the story best\n\n"
-            "Notes for scene_description image generation:\n"
-"- Always use the full story and narration context to ensure continuity of characters, setting, and mood across scenes.\n"
+        return """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, no markdown, no text before or after.
 
-"- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
-"  Start every scene with this exact line:\n"
-"  The characters in the image are: (EXAMPLE) 'a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'.\n\n"
+---
 
-"- After listing the characters, describe their appearance in specific, concrete terms (species, colors, clothing, or key traits).\n"
-"  Avoid generic terms like 'a person' or 'someone.'\n"
+Input:
+A list WORDS = [{index, start, end, word}] where start and end are timestamps in seconds (relative to 0). 
 
-"- Describe the scene as a static image from a cinematic moment — as if frozen mid-action.\n"
-"  You can capture implied motion or emotion (for example: 'mid-air above the lava', 'leaning toward each other', or 'looking up at the sky') but do NOT describe continuous movement or actions over time.\n"
+---
 
-"- Ensure the visual composition matches the story moment.\n"
-"  If the narration implies action (like jumping, falling, running, or flying), describe what that would look like as a single frozen moment, not as an ongoing event.\n"
+Task:
+Split the narration into contiguous SCENES using WORD INDICES ONLY.
 
-"- Include sensory and environmental details that make the image vivid and clear (lighting, mood, atmosphere, background elements like smoke, reflections, heat waves, or glowing light).\n"
+Each scene must:
+- Use words in order with no overlaps or gaps (each word appears exactly once).
+- Start at index 0 (the first word) and end at the last word.
+- Be between 5.0 and 10.0 seconds long, based on actual word timings.
+- Cuts must occur only at word boundaries (by index).
+- The first scene must start at time 0.0.
+- Scene durations must align exactly with word timings — no fabricated times.
+- Choose natural story breaks (pauses, subject changes, or emotional shifts).
 
-"- Use simple, concrete, and kid-friendly language that focuses only on what can be seen.\n"
+---
 
-"- Only include characters, objects, or settings that are already established in the story.\n"
-"  If new characters appear, infer a simple, clear visual description that fits naturally.\n"
+Output ONLY JSON in this exact format:
+{
+  "scenes": [
+    {
+      "start_word_index": int,
+      "end_word_index": int,
+      "narration": "exact words from subtitles",
+      "scene_description": "text-to-image prompt"
+    }
+  ]
+}
 
-"- Maintain continuity of character appearance across scenes (same clothing, colors, or physical traits).\n"
+---
 
-"Example of tone and structure:\n"
+Scene Duration Strategy:
+- Use actual start/end timestamps to determine each scene's duration:
+  duration = end_time(end_word_index) - start_time(start_word_index)
+- Ensure total coverage from start=0 to the final word's end.
+- Each scene should last 5–10 seconds when possible, while maintaining narrative rhythm.
+- Prioritize story flow and natural pacing — some scenes can be slightly shorter or longer if needed.
 
-"Narration: 'They jumped into it. They had fireproof jackets.'\n"
+---
 
-"Scene description:\n"
-"The characters in the image are: a white duck with a yellow beak and orange feet wearing a shiny silver fireproof jacket, and a brown chicken with a red comb wearing a shiny silver fireproof jacket. Both birds are mid-air inside the glowing orange crater of a volcano, surrounded by rising sparks and shimmering heat waves. Their metallic jackets gleam against the fiery background as they fall downward bravely together. The inside of the volcano glows bright orange and red, with molten rock swirling below and smoke curling upward through the air.\n"
+Notes for scene_description (image generation):
+- Always base your image on the narration context and story continuity.
+- Each scene should start with:
+  "The characters in the image are: ..."
+  Then list all characters visible in that moment (e.g., "a young boy with a backpack", "a brown dog", "a middle-aged woman wearing a red scarf").
+- If a character appears in multiple scenes, maintain consistent appearance (clothing, color, size, etc.).
+- Describe visible traits specifically — no vague words like "someone" or "a person".
+- Describe the image as a **frozen cinematic moment**, not continuous action.
+  - Acceptable: "mid-air above the lava," "looking up at the sky," "leaning toward each other."
+  - Not acceptable: "running across the field," "jumping continuously," or "walking slowly."
+- Include environmental and sensory details (lighting, mood, background elements like mist, sparks, water, fog, or reflections).
+- Keep descriptions concrete, vivid, and child-friendly.
+- Only include characters, objects, or settings established earlier in the narration. If new ones appear, infer simple, logical visuals that fit the story.
 
+---
 
+Example of tone and structure:
 
-        )
+Narration:
+"They jumped into it. They had fireproof jackets."
 
-        
+Scene description:
+"The characters in the image are: a white duck with a yellow beak and orange feet wearing a shiny silver fireproof jacket, and a brown chicken with a red comb wearing a shiny silver fireproof jacket. Both birds are mid-air inside the glowing orange crater of a volcano, surrounded by rising sparks and shimmering heat waves. Their metallic jackets gleam against the fiery background as they fall bravely together. The volcano glows bright orange and red, with molten rock swirling below and smoke curling upward through the air."
+"""
+
 
 def chat_json(messages: list, temperature: float | None = None, **kwargs):
     """Strict-JSON chat using the configured LLM provider."""
@@ -173,37 +211,6 @@ def chat_json(messages: list, temperature: float | None = None, **kwargs):
     kwargs["messages"] = messages
     return provider.chat_json(**kwargs)
 
-SYSTEM_PROMPT = (
-    "You are a creative video editor with good storytelling instincts. You must output ONLY valid JSON, no other text.\n\n"
-    "Input: a list WORDS = [{index, start, end, word}] with times relative to 0.\n\n"
-    "Task: split into contiguous SCENES using WORD INDICES ONLY.\n"
-    "Each scene should be between 5-10 seconds long based on word timings.\n\n"
-    "Guidelines:\n"
-    "- Do NOT invent, remove, or paraphrase words. Use exactly the provided words.\n"
-    "- No overlaps, no gaps; scenes must cover ALL words in order (each word exactly once).\n"
-    "- Choose scene durations between 5.0 and 10.0 seconds that make sense for the story flow.\n"
-    "- The first scene must start at time 0.0.\n"
-    "- Cuts must occur at word boundaries (by index).\n"
-    "- Consider natural story breaks, pauses, and narrative rhythm when choosing scene lengths.\n\n"
-    "Output ONLY JSON in this exact format:\n"
-    "{\"scenes\":[{\"start_word_index\":int,\"end_word_index\":int,\"scene_description\":\"text-to-image prompt\"}]}\n\n"
-    "Scene Duration Strategy:\n"
-    "- Analyze the word timings and story content to find natural scene breaks\n"
-    "- Choose durations that feel right for each scene - some moments need more time, others less\n"
-    "- Consider: dramatic pauses, important descriptions, character emotions, scene changes\n"
-    "- Aim for 5-10 seconds per scene, but prioritize what serves the story best\n\n"
-    "Notes for scene_description:\n"
-    "- Use the full story context to ensure characters, setting, and continuity remain consistent.\n"
-    "- At the very beginning of each scene description, clearly list all characters who appear in that scene, including any who appeared in previous scenes and remain present.\n"
-    "  Example format: 'Characters in this scene: [Lena, two children, a small dog].'\n"
-    "- If there is a portrait image added instead of the text format, use this prompt: 'Portrait Subject (person from image[0])', 'an elephant', 'a small dog'\n"
-    "- Describe the scene as a static image — no actions, movement, or unfolding events.\n"
-    "- Write in present tense, with kid-friendly, simple, and concrete language.\n"
-    "- Only include characters, objects, and details that are already established or implied in the story.\n"
-    "- Focus on visual details: appearance, colors, environment, mood, and arrangement in the frame.\n"
-
-
-)
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=12), stop=stop_after_attempt(3))
 def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -223,11 +230,11 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         "constraints": {"min_secs": MIN_S, "max_secs": MAX_S},
         "words": words_payload,
         "instruction": (
-            "Return a JSON object with 'scenes' array. Each scene must have start_word_index, end_word_index, and scene_description. "
+            "Return a JSON object with 'scenes' array. Each scene must have start_time, end_time, narration, and scene_description. "
             "Analyze word timings and create scenes that are between 5-10 seconds each based on what fits the story best. "
-            "Calculate word ranges so that (end_time - start_time) is between 5.0 and 10.0 seconds for every scene. "
-            "Consider natural story breaks and narrative flow when choosing scene lengths. "
-            "Cover all words exactly once, in order, with cuts at word indices. First scene starts at 0.0."
+            "Set start_time and end_time to create contiguous scenes from 0.0, each 5-10 seconds long. "
+            "Use exact words from the input for narration, covering all words exactly once in order. "
+            "Consider natural story breaks and narrative flow when choosing scene lengths."
         ),
     }
 
@@ -259,61 +266,10 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         print(f"[ERROR] LLM API call failed: {type(e).__name__}: {e}")
         raise
 
-# ---------- Validation / rebuild ----------
-def validate_and_build(
-    words: List[Dict[str, Any]],
-    plan: List[Dict[str, Any]],
-    snap_integers: bool = False
-) -> List[Dict[str, Any]]:
-    """
-    Build final scenes from word-index ranges; keep exact timings from words.
-    Validate: coverage in order, no gaps/overlaps. Optionally snap to integers (off by default).
-    """
-    n = len(words)
-    used: List[int] = []
-    scenes: List[Dict[str, Any]] = []
-    for it in plan:
-        start_idx = it.get("start_word_index")
-        end_idx = it.get("end_word_index")
-        if start_idx is None or end_idx is None:
-            raise ValueError(f"Missing word indices in scene: {it}")
-        a = int(start_idx)
-        b = int(end_idx)
-        if a < 0 or b < a or b >= n:
-            raise ValueError(f"Invalid word index range [{a},{b}]")
-        used.extend(range(a, b + 1))
-        st = words[a]["start"]; en = words[b]["end"]
-        narration = " ".join(w["word"] for w in words[a:b+1]).strip()
-        scenes.append({
-            "start_time": float(st),
-            "end_time":   float(en),
-            "narration": narration,
-            "scene_description": (it.get("scene_description") or "").strip(),
-        })
-
-    expect = list(range(n))
-    if used != expect:
-        raise ValueError("Coverage failure: scenes must cover all words exactly once, in order, no gaps/overlaps.")
-
-    # Ensure scenes start from 0.0 and respect natural durations within 5-10 second range
-    current_time = 0.0
-    for i, s in enumerate(scenes):
-        s["start_time"] = current_time
-        dur = s["end_time"] - s["start_time"]
-        dur_i = int(round(dur))
-        # Allow natural scene durations between 5-10 seconds
-        if dur_i < 5: dur_i = 5
-        if dur_i > 10: dur_i = 10
-        s["end_time"] = current_time + float(dur_i)
-        current_time = s["end_time"]
-
-    return scenes
 
 # ---------- Main ----------
 def main():
     ap = argparse.ArgumentParser(description="Auto-split scenes using FULL subtitles (word-level).")
-    ap.add_argument("--snap-integers", action="store_true",
-                      help="OPTIONAL: snap scene durations to integer 4..5s (will move off exact word times).")
     args = ap.parse_args()
 
     if not settings.CLAUDE_API_KEY and not settings.OPENAI_API_KEY:
@@ -339,9 +295,9 @@ def main():
         print(f"[ERROR] Full traceback: {traceback.format_exc()}")
         raise
 
-    print("[DEBUG] Validating and building scenes...")
-    scenes = validate_and_build(words, plan, snap_integers=args.snap_integers)
-    print(f"[DEBUG] Built {len(scenes)} scenes")
+    print("[DEBUG] Using scenes directly from LLM response...")
+    scenes = plan
+    print(f"[DEBUG] Using {len(scenes)} scenes from LLM")
 
     write_scenes(scenes)
 
