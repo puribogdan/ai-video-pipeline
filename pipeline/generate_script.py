@@ -55,7 +55,7 @@ def get_system_prompt(has_portrait: bool = False) -> str:
 ---
 
 Input:
-A list WORDS = [{index, start, end, word}] where start and end are timestamps in seconds relative to 0.
+A list WORDS = [{word, start, end}] where start and end are timestamps in seconds relative to 0.
 
 ---
 
@@ -76,8 +76,8 @@ Output format (JSON only):
 {
   "scenes": [
     {
-      "start_word_index": int,
-      "end_word_index": int,
+      "start_time": int,
+      "end_time": int,
       "narration": exact words from subtitles,
       "scene_description": "text-to-image prompt"
     }
@@ -136,7 +136,7 @@ Summary of Key Rules:
 ---
 
 Input:
-A list WORDS = [{index, start, end, word}] where start and end are timestamps in seconds (relative to 0). 
+A list WORDS = [{word, start, end}] where start and end are timestamps in seconds (relative to 0). 
 
 ---
 
@@ -158,8 +158,8 @@ Output ONLY JSON in this exact format:
 {
   "scenes": [
     {
-      "start_word_index": int,
-      "end_word_index": int,
+      "start_time": int,
+      "end_time": int,
       "narration": "exact words from subtitles",
       "scene_description": "text-to-image prompt"
     }
