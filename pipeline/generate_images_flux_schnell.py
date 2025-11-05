@@ -65,28 +65,30 @@ logger = logging.getLogger(__name__)
 
 # -------------------- Style Library --------------------
 STYLE_LIBRARY: Dict[str, str] = {
-    "kid_friendly_cartoon": "A cartoon style inspired by Nickelodeon and Cartoon Network classics. Preserve bright colors, rounded character designs, and exaggerated playful expressions. Preserve the exact style and subject from the start frame.",
-    "japanese_kawaii": "A kawaii chibi style inspired by Sanrio characters like Hello Kitty and Pompompurin. Preserve pastel palettes, big sparkly eyes, soft rounded shapes, and cozy cute details. Preserve the exact style and subject from the start frame.",
-    "storybook_illustrated": "A cut-out collage style inspired by Eric Carle and Ezra Jack Keats. Preserve layered textures, hand-painted paper patterns, and playful handmade charm. Preserve the exact style and subject from the start frame.",
-    "watercolor_storybook": "A watercolor illustration style inspired by Eric Carle and Ezra Jack Keats. Preserve soft pastel washes, hand-painted brush textures, and visible paper grain. Preserve the exact style and subject from the start frame.",
-    "paper_cutout": "A paper cut-out style inspired by South Park's early seasons. Preserve flat 2D shapes, bold outlines, lo-fi paper textures, and simple collage charm. Preserve the exact style and subject from the start frame.",
-    "cutout_collage": "A surreal cut-out collage style inspired by Terry Gilliam's Monty Python animations. Preserve mismatched magazine textures, bold cut edges, and layered paper compositions. Preserve the exact style and subject from the start frame.",
-    "realistic_3d": "A cinematic 3D style inspired by Pixar and DreamWorks. Preserve high-quality rendering, expressive character eyes, detailed textures, and polished lighting. Preserve the exact style and subject from the start frame.",
-    "claymation": "A claymation style inspired by Aardman Studios and Tumble Leaf. Preserve hand-molded clay textures, colorful sets, soft lighting, and visible handcrafted imperfections. Preserve the exact style and subject from the start frame.",
-    "needle_felted": "A felted stop-motion style inspired by Pui Pui Molcar. Preserve fuzzy wool textures, pastel color palettes, and plush toy-like rounded characters. Preserve the exact style and subject from the start frame.",
-    "stop_motion_felt_clay": "A handcrafted style inspired by Pokémon Concierge. Preserve miniature sets, felt and clay textures, soft natural lighting, and cozy handmade charm. Preserve the exact style and subject from the start frame.",
-    "hybrid_mix": "A hybrid cartoon style inspired by The Amazing World of Gumball. Preserve flat 2D characters placed in semi-realistic 3D environments, maintaining playful contrast. Preserve the exact style and subject from the start frame.",
-    "japanese_anime": "An anime style inspired by Kyoto Animation and Toei. Preserve sharp linework, expressive eyes, stylized hair and costumes, and bold dramatic angles. Preserve the exact style and subject from the start frame.",
-    "pixel_art": "A pixel art style inspired by Minecraft and retro 8-bit games. Preserve blocky voxel characters, chunky textures, and colorful simplified environments. Preserve the exact style and subject from the start frame.",
-    "van_gogh": "A painterly style inspired by Vincent van Gogh. Preserve swirling brushstrokes, thick textured oils, vivid contrasting colors, and bold impasto effects. Preserve the exact style and subject from the start frame.",
-    "impressionism": "An Impressionist style inspired by Claude Monet and Pierre-Auguste Renoir. Preserve soft brushstrokes, dappled light, pastel colors, and dreamy open-air compositions. Preserve the exact style and subject from the start frame.",
-    "art_deco": "An Art Deco style inspired by Tamara de Lempicka and 1920s poster art. Preserve sleek geometry, metallic tones, streamlined symmetry, and glamorous forms. Preserve the exact style and subject from the start frame.",
-    "motion_comic": "A manga style inspired by Japanese comics. Preserve bold linework, screentone textures, expressive facial features, and iconic manga aesthetics. Preserve the exact style and subject from the start frame.",
-    "comic_book": "A comic book style inspired by Jack Kirby and classic superhero comics. Preserve bold outlines, halftone dots, vibrant colors, and exaggerated action poses. Preserve the exact style and subject from the start frame.",
-    "gothic": "A gothic whimsical style inspired by Tim Burton and Edward Gorey. Preserve elongated characters, moody lighting, and playful gothic charm. Preserve the exact style and subject from the start frame.",
-    "fantasy_magic_glow": "A glowing fantasy style inspired by Studio Ghibli and Disney's Fantasia. Preserve luminous glows, soft gradients, spark-like particles, and magical enchanted settings. Preserve the exact style and subject from the start frame.",
-    "surrealism_hybrid": "A surrealist whimsical style blending Dr. Seuss and Salvador Dalí. Preserve Seussian curves, surreal dreamscapes, and imaginative distorted forms. Preserve the exact style and subject from the start frame.",
-    "japanese_woodblock": "A woodblock style inspired by Hokusai and Hiroshige. Preserve bold outlines, flat layered colors, and dramatic wave and mountain compositions. Preserve the exact style and subject from the start frame.",
+
+    "kid_friendly_cartoon": "Create the image in a cartoon style inspired by Nickelodeon and Cartoon Network classics. Preserve bright colors, rounded character designs, and exaggerated playful expressions.",
+    "japanese_kawaii": "Create the image in a kawaii chibi style inspired by Sanrio characters like Hello Kitty and Pompompurin. Preserve pastel palettes, big sparkly eyes, soft rounded shapes, and cozy cute details.",
+    "storybook_illustrated": "Create the image in a cut-out collage style inspired by Eric Carle and Ezra Jack Keats. Preserve layered textures, hand-painted paper patterns, and playful handmade charm.",
+    "watercolor_storybook": "Create the image in a watercolor illustration style inspired by Eric Carle and Ezra Jack Keats. Preserve soft pastel washes, hand-painted brush textures, and visible paper grain.",
+    "paper_cutout": "Create the image in a paper cut-out style inspired by South Park's early seasons. Preserve flat 2D shapes, bold outlines, lo-fi paper textures, and simple collage charm.",
+    "cutout_collage": "Create the image in a surreal cut-out collage style inspired by Terry Gilliam's Monty Python animations. Preserve mismatched magazine textures, bold cut edges, and layered paper compositions.",
+    "realistic_3d": "Create the image in a cinematic 3D style inspired by Pixar and DreamWorks. Preserve high-quality rendering, expressive character eyes, detailed textures, and polished lighting.",
+    "claymation": "Create the image in a claymation style inspired by Aardman Studios and Tumble Leaf. Preserve hand-molded clay textures, colorful sets, soft lighting, and visible handcrafted imperfections.",
+    "needle_felted": "Create the image in a felted stop-motion style inspired by Pui Pui Molcar. Use soft, fuzzy wool and felt textures throughout with visible fiber details. Apply a gentle pastel color palette with muted, warm tones. Design all characters and objects with rounded, plush toy-like forms—soft edges, no sharp angles, and a handcrafted tactile quality. Lighting should be natural and diffused, as if photographed in a physical miniature set. Maintain a charming, cozy atmosphere with the imperfect, lovable aesthetic of handmade felt puppets. All elements should feel like they could exist as actual fabric crafts.",
+    "stop_motion_felt_clay": "Create the image in a handcrafted style inspired by Pokémon Concierge. Preserve miniature sets, felt and clay textures, soft natural lighting, and cozy handmade charm.",
+    "hybrid_mix": "Create the image in a hybrid cartoon style inspired by The Amazing World of Gumball. Preserve flat 2D characters placed in semi-realistic 3D environments, maintaining playful contrast.",
+    "japanese_anime": "Create the image in an anime style inspired by Kyoto Animation and Toei. Preserve sharp linework, expressive eyes, stylized hair and costumes, and bold dramatic angles.",
+    "pixel_art": "Create the image in a pixel art style inspired by Minecraft and retro 8-bit games. Preserve blocky voxel characters, chunky textures, and colorful simplified environments.",
+    "van_gogh": "Create the image in a painterly style inspired by Vincent van Gogh. Preserve swirling brushstrokes, thick textured oils, vivid contrasting colors, and bold impasto effects.",
+    "impressionism": "Create the image in an Impressionist style inspired by Claude Monet and Pierre-Auguste Renoir. Preserve soft brushstrokes, dappled light, pastel colors, and dreamy open-air compositions.",
+    "art_deco": "Create the image in an Art Deco style inspired by Tamara de Lempicka and 1920s poster art. Preserve sleek geometry, metallic tones, streamlined symmetry, and glamorous forms.",
+    "motion_comic": "Create the image in a manga style inspired by Japanese comics. Preserve bold linework, screentone textures, expressive facial features, and iconic manga aesthetics.",
+    "comic_book": "Create the image in a comic book style inspired by Jack Kirby and classic superhero comics. Preserve bold outlines, halftone dots, vibrant colors, and exaggerated action poses.",
+    "gothic": "Create the image in a gothic whimsical style inspired by Tim Burton and Edward Gorey. Preserve elongated characters, moody lighting, and playful gothic charm.",
+    "fantasy_magic_glow": "Create the image in a glowing fantasy style inspired by Studio Ghibli and Disney's Fantasia. Preserve luminous glows, soft gradients, spark-like particles, and magical enchanted settings.",
+    "surrealism_hybrid": "Create the image in a surrealist whimsical style blending Dr. Seuss and Salvador Dalí. Preserve Seussian curves, surreal dreamscapes, and imaginative distorted forms.",
+    "japanese_woodblock": "Create the image in a woodblock style inspired by Hokusai and Hiroshige. Preserve bold outlines, flat layered colors, and dramatic wave and mountain compositions."
+
 }
 
 DEFAULT_STYLE_KEY = "kid_friendly_cartoon"  # fallback if env not set
@@ -199,14 +201,20 @@ def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
         portrait_prompt = """
 
 
-If the story’s main focus is human, make image[0] person the central protagonist.
-If the main focus is non-human (for example, animals, toys, vehicles, or scenery), 
-include the person from image[0] naturally as a supporting or background character, 
-keeping the same stylized appearance.
+CHARACTER INTEGRATION:
+If the person from image [0] does NOT already appear in the input image: Reimagine them as a character designed in the chosen visual style, balancing recognizability with stylistic coherence.
+
+Preserve for recognition: Overall facial proportions, key distinguishing features (eye shape, nose, mouth structure), hair color and general style, skin tone
+Transform to match style: Reinterpret all features using the style's artistic language—stylized eyes, simplified or exaggerated proportions where the style demands it, linework and shading techniques, color saturation and treatment, clothing design that fits the world's aesthetic
+The character should be recognizable as the reference person, but look like they were illustrated/created using this style's methods, not like a photo with a filter applied
+Fully integrate them into the scene's visual cohesion—same level of stylization, lighting approach, and artistic treatment as all other elements
+
+If the person from image [0] ALREADY appears in the input image: Keep them exactly as they are—preserve their existing style, appearance, position, and all visual characteristics without any changes or duplication.
+The goal is recognizable identity within full stylistic integration for new characters, and complete preservation for existing ones.
 """
-        return f"SCENE BRIEF: {desc}\n{portrait_prompt}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
+        return f"{style_line} \n{portrait_prompt}\n SCENE BRIEF:{desc}\n{CAMERA_ANGLE_PROMPT}\n"
     else:
-        return f"SCENE BRIEF: {desc}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
+        return f"\n{style_line} \n SCENE BRIEF: {desc}\n{CAMERA_ANGLE_PROMPT}"
 
 # -------------------- Model calls (with enhanced retry) --------------------
 def _run_with_retry(fn, *args, retries: int = 3, delay: float = 1.5, **kwargs):
