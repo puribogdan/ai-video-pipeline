@@ -196,18 +196,14 @@ def build_scene1_prompt(desc: str, style_line: str) -> str:
 
 def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
     if has_portrait:
-        portrait_prompt = """The person shown in image[0] is a recurring character.
-Keep their facial identity and recognizable features consistent with image[0],
-but use the art style, clothing look, and rendering style established in image[1] (the latest stylized frame).
-Do not revert to the real or photographic look of image[0].
+        portrait_prompt = """
 
-Always include exactly one instance of this person in the frame — never remove, duplicate, or clone them.
 
-If the story’s main focus is human, make this person the central protagonist.
+If the story’s main focus is human, make image[0] person the central protagonist.
 If the main focus is non-human (for example, animals, toys, vehicles, or scenery), 
 include the person from image[0] naturally as a supporting or background character, 
 keeping the same stylized appearance.
-Use image[0] only for identity consistency; use image[1] for art style, clothing, and scene mood."""
+"""
         return f"SCENE BRIEF: {desc}\n{portrait_prompt}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
     else:
         return f"SCENE BRIEF: {desc}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
