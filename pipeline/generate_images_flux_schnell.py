@@ -194,7 +194,7 @@ def _sha12(path: Path) -> str:
 
 # -------------------- Prompt builders (style line and portrait instructions vary) --------------------
 def build_scene1_prompt(desc: str, style_line: str) -> str:
-    return f"{desc}\n{CAMERA_ANGLE_PROMPT}\n{style_line}"
+    return f"{style_line} \nSCENE BRIEF: {desc}\n\n{CAMERA_ANGLE_PROMPT}"
 
 def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
     if has_portrait:
@@ -212,9 +212,9 @@ Fully integrate them into the scene's visual cohesion—same level of stylizatio
 If the person from image [0] ALREADY appears in the input image: Keep them exactly as they are—preserve their existing style, appearance, position, and all visual characteristics without any changes or duplication.
 The goal is recognizable identity within full stylistic integration for new characters, and complete preservation for existing ones.
 """
-        return f"{style_line} \n{portrait_prompt}\n SCENE BRIEF:{desc}\n{CAMERA_ANGLE_PROMPT}\n"
+        return f"{style_line} \n{portrait_prompt}\nSCENE BRIEF: {desc}\n\n{CAMERA_ANGLE_PROMPT}"
     else:
-        return f"\n{style_line} \n SCENE BRIEF: {desc}\n{CAMERA_ANGLE_PROMPT}"
+        return f"{style_line} \nSCENE BRIEF: {desc}\n\n{CAMERA_ANGLE_PROMPT}"
 
 # -------------------- Model calls (with enhanced retry) --------------------
 def _run_with_retry(fn, *args, retries: int = 3, delay: float = 1.5, **kwargs):
