@@ -100,7 +100,7 @@ Scene Description Guidelines (for text-to-image generation):
    "The characters in the image are: ..."
    - List all characters who appear in the scene.
    - Include recurring characters from previous scenes with identical appearance.
-   - The main subject from image[0] must always appear consistently (same species, same look).
+   - The main subject from image[0] must always appear consistently 
 
 2. Then describe:
    - Each character's appearance (species, clothing, colors, or key traits).
@@ -122,9 +122,7 @@ Narration:
 Scene description:
 "The characters in the image are: (EXAMPLE) 'Portrait Subject (person from image[0])', 'a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'. "
 
-The character from image[0] must always appear in the story with the same species and appearance as in the uploaded image. 
-Do not transform or replace them. If the story’s main subject matches their species, make them the protagonist. 
-If the main subject is different, include them naturally as a secondary character in the scene.
+
 
 ---
 
