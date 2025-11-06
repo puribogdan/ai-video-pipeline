@@ -101,7 +101,7 @@ Scene Description Guidelines (for text-to-image generation):
    - List EVERY character with SPECIFIC visual details
    - ❌ NEVER use generic terms like: " "a group of travelers", "someone", "a person"
    - ✅ ALWAYS describe with concrete details: "a purple striped cat wearing a yellow bandana", "a 7-year-old boy with a red baseball cap and blue overalls"
-   - Always start the scenes with the Portrait Subject (person from image[0]) as one of the characters.
+   - Always start the scenes with the Portrait Subject (person from image[0]) as one of the characters dressed the same as in the referance image.
 2. **Character Detail Requirements:**
    - Species/type (human, animal, creature)
    - Age or size (if human/humanoid: child, teen, adult, elderly)
