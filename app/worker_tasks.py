@@ -698,9 +698,15 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tu
 
     # Capture detected language from pipeline output
     detected_language = None
-    log(f"RUN: {' '.join([sys.executable, 'make_video.py', '--job-id', job_dir.name])}")
+    # Check if we should stop after image generation
+    make_video_args = [sys.executable, "make_video.py", "--job-id", job_dir.name]
+    if os.getenv("STOP_AFTER_IMAGES", "").strip():
+        make_video_args.append("--stop-after-images")
+        log("STOP_AFTER_IMAGES environment variable set - will stop after image generation")
+    
+    log(f"RUN: {' '.join(make_video_args)}")
     proc = subprocess.Popen(
-        [sys.executable, "make_video.py", "--job-id", job_dir.name],
+        make_video_args,
         cwd=str(pipe_dir), env=env,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, encoding="utf-8", errors="replace",
@@ -726,10 +732,31 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tu
         proc.wait()
         raise RuntimeError(f"make_video.py timed out after 5400 seconds")
 
-    final_video = pipe_dir / "final_video.mp4"
-    if not final_video.exists():
-        raise RuntimeError("final_video.mp4 not produced by pipeline")
-    return final_video, detected_language
+    # Check if we're stopping after images
+    stop_after_images = os.getenv("STOP_AFTER_IMAGES", "").strip()
+    
+    if stop_after_images:
+        # When stopping after images, check for generated images instead of final video
+        scenes_dir = pipe_dir / "scenes"
+        scene_images = list(scenes_dir.glob("scene_*.png")) if scenes_dir.exists() else []
+        
+        if not scene_images:
+            raise RuntimeError("No scene images found. Image generation may have failed.")
+        
+        log(f"Pipeline stopped after image generation. Found {len(scene_images)} scene images.")
+        
+        # Create a placeholder final video path (this won't be a real video file)
+        # The worker will handle this case differently
+        placeholder_video = pipe_dir / "final_video_placeholder.mp4"
+        placeholder_video.touch()  # Create empty file as marker
+        
+        return placeholder_video, detected_language
+    else:
+        # Normal full pipeline - expect final video
+        final_video = pipe_dir / "final_video.mp4"
+        if not final_video.exists():
+            raise RuntimeError("final_video.mp4 not produced by pipeline")
+        return final_video, detected_language
 
 
 

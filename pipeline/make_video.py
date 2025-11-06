@@ -14,6 +14,7 @@
 # Usage:
 #   python make_video.py
 #   python make_video.py --trim-args "--target_silence_ms 800 --keep_head_ms 600 --min_silence_ms 700"
+#   python make_video.py --stop-after-images  # Stop after image generation (for testing)
 #
 # Notes:
 # - Expects to run from the same folder where the pipeline scripts live.
@@ -137,6 +138,7 @@ def main():
     ap.add_argument("--skip-images", action="store_true")
     ap.add_argument("--skip-i2v", action="store_true")
     ap.add_argument("--skip-merge", action="store_true")
+    ap.add_argument("--stop-after-images", action="store_true", help="Stop pipeline after image generation (skips video creation and merge).")
     args = ap.parse_args()
 
     ensure_env()
@@ -249,7 +251,9 @@ def main():
         log("Skipping image generation.")
 
     # 4) Video chunks
-    if not args.skip_i2v:
+    if args.stop_after_images:
+        log("Stopping after image generation (--stop-after-images flag set).")
+    elif not args.skip_i2v:
         cmd_i2v = f"python generate_video_chunks_seedance.py --resolution {args.resolution} --fps {int(args.fps)}"
         if args.limit_scenes is not None:
             cmd_i2v += f" --limit {int(args.limit_scenes)}"
@@ -260,32 +264,64 @@ def main():
         log("Skipping i2v.")
 
     # 5) Merge
-    if not args.skip_merge:
+    if args.stop_after_images:
+        log("Stopping after image generation - skipping merge step.")
+    elif not args.skip_merge:
         run("python merge_and_add_audio.py", cwd=ROOT, extra_env=child_env)
     else:
         log("Skipping merge.")
 
-    if not FINAL_VIDEO.exists():
-        raise SystemExit("final_video.mp4 not found.")
+    # Handle completion based on whether we stopped after images or completed full pipeline
+    if args.stop_after_images:
+        # Log completion at image generation stage
+        log("Pipeline completed successfully at image generation stage.")
+        
+        # Check if images were generated successfully
+        scene_images = list(SCENES_DIR.glob("scene_*.png"))
+        if not scene_images:
+            raise SystemExit("No scene images found. Image generation may have failed.")
+        
+        meta: Dict[str, object] = {
+            "job_id": job_id,
+            "audio_selected": str(audio_for_pipeline),
+            "stage": "images_completed",
+            "scenes_dir": str(SCENES_DIR),
+            "scene_count": len(scene_images),
+            "scene_images": [str(img) for img in scene_images],
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+            "resolution": args.resolution,
+            "fps": args.fps,
+            "limit_scenes": args.limit_scenes,
+            "trim_applied": trim_script.exists() and not args.skip_trim,
+            "trim_args": args.trim_args,
+            "stopped_after": "image_generation",
+        }
+        print(json.dumps(meta, indent=2))
+    else:
+        # Full pipeline completed
+        if not FINAL_VIDEO.exists():
+            raise SystemExit("final_video.mp4 not found.")
 
-    # B2 upload handled by caller (e.g., app worker); skipping inline upload here.
-    b2_url = None
+        # B2 upload handled by caller (e.g., app worker); skipping inline upload here.
+        b2_url = None
 
-    meta: Dict[str, object] = {
-        "job_id": job_id,
-        "audio_selected": str(audio_for_pipeline),
-        "final_video": str(FINAL_VIDEO),
-        "final_size_bytes": FINAL_VIDEO.stat().st_size,
-        "b2_url": b2_url,
-        "started_at": datetime.now().isoformat(timespec="seconds"),
-        "finished_at": datetime.now().isoformat(timespec="seconds"),
-        "resolution": args.resolution,
-        "fps": args.fps,
-        "limit_scenes": args.limit_scenes,
-        "trim_applied": trim_script.exists() and not args.skip_trim,
-        "trim_args": args.trim_args,
-    }
-    print(json.dumps(meta, indent=2))
+        meta: Dict[str, object] = {
+            "job_id": job_id,
+            "audio_selected": str(audio_for_pipeline),
+            "final_video": str(FINAL_VIDEO),
+            "final_size_bytes": FINAL_VIDEO.stat().st_size,
+            "b2_url": b2_url,
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+            "resolution": args.resolution,
+            "fps": args.fps,
+            "limit_scenes": args.limit_scenes,
+            "trim_applied": trim_script.exists() and not args.skip_trim,
+            "trim_args": args.trim_args,
+            "stage": "full_pipeline_completed",
+        }
+        print(json.dumps(meta, indent=2))
 
 if __name__ == "__main__":
     try:
