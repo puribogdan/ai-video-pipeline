@@ -96,22 +96,29 @@ Scene Duration Strategy:
 
 Scene Description Guidelines (for text-to-image generation):
 
-1. Start with this exact line:
-   "The characters in the image are: ..."
-   - List all characters who appear in the scene.
-   - Include recurring characters from previous scenes with identical appearance.
-   - The main subject from image[0] must always appear consistently 
+1. **CRITICAL - Character Descriptions Must Be Explicit:**
+   - Start with: "The characters in the image are: ..."
+   - List EVERY character with SPECIFIC visual details
+   - ❌ NEVER use generic terms like: "the person from image[0]", "a group of travelers", "someone", "a person"
+   - ✅ ALWAYS describe with concrete details: "a purple striped cat wearing a yellow bandana", "a 7-year-old boy with a red baseball cap and blue overalls"
+   
+2. **Character Detail Requirements:**
+   - Species/type (human, animal, creature)
+   - Age or size (if human/humanoid: child, teen, adult, elderly)
+   - Distinctive physical features (fur color, hair color/style, build)
+   - Clothing colors, patterns, and style
+   - Key accessories (hats, glasses, jewelry, bags)
+   - The portrait subject from image[0] should be described with all their visible traits (e.g., "a young woman with long brown hair in a blue jacket" not "portrait subject")
 
-2. Then describe:
-   - Each character's appearance (species, clothing, colors, or key traits).
-   - The environment, atmosphere, and lighting in specific, visual detail.
-   - The moment as a static, cinematic frame — not continuous action.
-   - Avoid generic or abstract terms like "someone" or "a person."
+3. **Continuity Rules:**
+   - Once a character is introduced with specific traits, use THE EXACT SAME description in every subsequent scene
+   - Maintain consistent character appearances, clothing, and colors throughout all scenes
+   - Keep environmental details and color palettes consistent
 
-3. Maintain continuity across all scenes (consistent settings, outfits, colors, etc.).
-4. Use clear, concrete, kid-friendly language focused only on what can be visually seen.
-5. The portrait character will always be human. If he/she is the main character make it as the protagonist if not add it as a secondary character.
-
+4. Then describe:
+   - The environment, atmosphere, and lighting in specific, visual detail
+   - The moment as a static, cinematic frame — not continuous action
+   - Use clear, concrete, kid-friendly language focused only on what can be visually seen
 
 ---
 
@@ -120,10 +127,11 @@ Example:
 Narration:
 "They jumped into it. They had fireproof jackets."
 
-Scene description:
-"The characters in the image are: (EXAMPLE) 'Portrait Subject (person from image[0])', 'a young boy with a backpack', 'a middle-aged woman wearing a red scarf', 'a brown dog', 'an elephant'. "
+❌ BAD Scene description:
+"The characters in the image are: 'Portrait Subject (person from image[0])', 'a group of travelers'..."
 
-
+✅ GOOD Scene description:
+"The characters in the image are: a young girl with long blonde hair wearing a green dress and white sneakers, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls, a brown dog with floppy ears wearing a red collar, a gray elephant with white tusks. They are all wearing shiny silver fireproof jackets. The scene shows them mid-jump entering a glowing orange portal surrounded by swirling flames..."
 
 ---
 
@@ -132,7 +140,8 @@ Summary of Key Rules:
 - No missing or extra words.
 - Scene timing must align exactly with provided word timestamps.
 - Each scene 5–10 seconds long, covering all words in sequence.
-- Maintain visual and character continuity across all scenes.
+- **Every character must have explicit visual details — NO generic references.**
+- Maintain exact character descriptions across all scenes for continuity.
 """
     else:
         return """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
