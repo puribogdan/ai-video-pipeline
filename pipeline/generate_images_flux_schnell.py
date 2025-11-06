@@ -2,14 +2,14 @@
 # Portrait-aware minimal pipeline with prompt logging.
 # - If PORTRAIT_PATH is set and exists:
 #     • Preprocess once: portrait_cutout = uploaded portrait with background removed (transparent PNG).
-#     • Scene 1 = EDIT using [portrait_cutout]
-#     • Scene 2 = EDIT using [portrait_cutout, scene_001]
-#     • Scene 3+ = EDIT using [portrait_cutout, previous]
+#     • Scene 1 = EDIT using [portrait_cutout] + build_first_image_prompt (with portrait integration)
+#     • Scene 2 = EDIT using [portrait_cutout, scene_001] + build_subsequent_portrait_prompt
+#     • Scene 3+ = EDIT using [portrait_cutout, previous] + build_subsequent_portrait_prompt
 #     • Add the "portrait identity" prompt block to every scene (identity = image[0]; single instance; always included; can be protagonist unless the main subject is non-human, then supporting).
 # - Else (no portrait):
-#     • Scene 1 = T2I
-#     • Scene 2 = EDIT using [scene_001]
-#     • Scene 3+ = EDIT using [previous]
+#     • Scene 1 = T2I + build_scene1_prompt
+#     • Scene 2 = EDIT using [scene_001] + build_subsequent_no_portrait_prompt
+#     • Scene 3+ = EDIT using [previous] + build_subsequent_no_portrait_prompt
 # - Only the *style* line is variable (chosen by user). Everything else in prompts stays the same.
 # - Saves native PNGs, logs prompts to scenes/prompt.json
 
@@ -196,7 +196,7 @@ def _sha12(path: Path) -> str:
 def build_scene1_prompt(desc: str, style_line: str) -> str:
     return f"{style_line} \nSCENE BRIEF: {desc}\n\n{CAMERA_ANGLE_PROMPT}"
 
-def build_edit_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
+def build_first_image_prompt(desc: str, style_line: str, has_portrait: bool) -> str:
     if has_portrait:
         portrait_prompt = """
 
@@ -215,6 +215,26 @@ The goal is recognizable identity within full stylistic integration for new char
         return f"{style_line} \n{portrait_prompt}\nSCENE BRIEF: {desc}\n\n{CAMERA_ANGLE_PROMPT}"
     else:
         return f"{style_line} \nSCENE BRIEF: {desc}\n\n{CAMERA_ANGLE_PROMPT}"
+
+def build_subsequent_portrait_prompt(desc: str, style_line: str) -> str:
+    portrait_prompt = """
+
+
+CHARACTER INTEGRATION:
+If the person from image [0] does NOT already appear in the input image: Reimagine them as a character designed in the chosen visual style, balancing recognizability with stylistic coherence.
+
+Preserve for recognition: Overall facial proportions, key distinguishing features (eye shape, nose, mouth structure), hair color and general style, skin tone
+Transform to match style: Reinterpret all features using the style's artistic language—stylized eyes, simplified or exaggerated proportions where the style demands it, linework and shading techniques, color saturation and treatment, clothing design that fits the world's aesthetic
+The character should be recognizable as the reference person, but look like they were illustrated/created using this style's methods, not like a photo with a filter applied
+Fully integrate them into the scene's visual cohesion—same level of stylization, lighting approach, and artistic treatment as all other elements
+
+If the person from image [0] ALREADY appears in the input image: Keep them exactly as they are—preserve their existing style, appearance, position, and all visual characteristics without any changes or duplication.
+The goal is recognizable identity within full stylistic integration for new characters, and complete preservation for existing ones.
+"""
+    return f"{style_line} \n{portrait_prompt}\nSCENE BRIEF: {desc}\n\n{CAMERA_ANGLE_PROMPT}"
+
+def build_subsequent_no_portrait_prompt(desc: str, style_line: str) -> str:
+    return f"{style_line} \nSCENE BRIEF: {desc}\n\n{CAMERA_ANGLE_PROMPT}"
 
 # -------------------- Model calls (with enhanced retry) --------------------
 def _run_with_retry(fn, *args, retries: int = 3, delay: float = 1.5, **kwargs):
@@ -436,19 +456,20 @@ def main():
                 if i == 1:
                     # Scene 1: only needs portrait_path
                     refs = [portrait_path]
+                    prompt = build_first_image_prompt(desc=desc, style_line=style_line, has_portrait=True)
                 elif i == 2:
                     # Scene 2: needs both portrait and scene_001
                     if ref_png is None or not ref_png.exists():
                         raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
                     refs = [portrait_path, ref_png]
+                    prompt = build_subsequent_portrait_prompt(desc=desc, style_line=style_line)
                 else:
                     # Scene 3+: needs portrait and previous scene
                     if prev_png is None or not prev_png.exists():
                         raise RuntimeError(f"Missing references for scene {sid}.")
                     refs = [portrait_path, prev_png]
+                    prompt = build_subsequent_portrait_prompt(desc=desc, style_line=style_line)
 
-                # Use portrait identity prompt block for every scene
-                prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=True)
                 mode = "edit"
                 scene_data = {
                     "mode": mode,
@@ -494,7 +515,7 @@ def main():
                             raise RuntimeError(f"Missing previous scene for scene {sid}.")
                         refs = [prev_png]
 
-                    prompt = build_edit_prompt(desc=desc, style_line=style_line, has_portrait=False)
+                    prompt = build_subsequent_no_portrait_prompt(desc=desc, style_line=style_line)
                     mode = "edit"
                     scene_data = {
                         "mode": mode,
