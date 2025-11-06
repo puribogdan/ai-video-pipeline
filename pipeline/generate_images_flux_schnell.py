@@ -220,21 +220,12 @@ def build_subsequent_portrait_prompt(desc: str, style_line: str) -> str:
     portrait_prompt = """
 
 
-CHARACTER INTEGRATION:
-If the person from image [0] does NOT already appear in the input image: Reimagine them as a character designed in the chosen visual style, balancing recognizability with stylistic coherence.
 
-Preserve for recognition: Overall facial proportions, key distinguishing features (eye shape, nose, mouth structure), hair color and general style, skin tone
-Transform to match style: Reinterpret all features using the style's artistic language—stylized eyes, simplified or exaggerated proportions where the style demands it, linework and shading techniques, color saturation and treatment, clothing design that fits the world's aesthetic
-The character should be recognizable as the reference person, but look like they were illustrated/created using this style's methods, not like a photo with a filter applied
-Fully integrate them into the scene's visual cohesion—same level of stylization, lighting approach, and artistic treatment as all other elements
-
-If the person from image [0] ALREADY appears in the input image: Keep them exactly as they are—preserve their existing style, appearance, position, and all visual characteristics without any changes or duplication.
-The goal is recognizable identity within full stylistic integration for new characters, and complete preservation for existing ones.
 """
-    return f"{style_line} \n{portrait_prompt}\nSCENE BRIEF: {desc}\n\n{CAMERA_ANGLE_PROMPT}"
+    return f"Maintain the same art style, composition, and color palette as before \n{portrait_prompt}\n {CAMERA_ANGLE_PROMPT}\n SCENE BRIEF: {desc}\n"
 
 def build_subsequent_no_portrait_prompt(desc: str, style_line: str) -> str:
-    return f"{style_line} \nSCENE BRIEF: {desc}\n\n{CAMERA_ANGLE_PROMPT}"
+    return f"Maintain the same art style, composition, and color palette as before \n {CAMERA_ANGLE_PROMPT}\n SCENE BRIEF: {desc}\n"
 
 # -------------------- Model calls (with enhanced retry) --------------------
 def _run_with_retry(fn, *args, retries: int = 3, delay: float = 1.5, **kwargs):
