@@ -110,6 +110,7 @@ Scene Description Guidelines (for text-to-image generation):
 
 3. Maintain continuity across all scenes (consistent settings, outfits, colors, etc.).
 4. Use clear, concrete, kid-friendly language focused only on what can be visually seen.
+5. The portrait character will always be human. If he/she is the main character make it as the protagonist if not add it as a secondary character.
 
 
 ---
