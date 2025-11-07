@@ -16,7 +16,6 @@ from dotenv import load_dotenv
 from .email_utils import send_link_email
 from .audio_monitor import AudioUploadMonitor, AudioFileEvent, FileEventType, get_monitor
 from .monitoring import get_monitor as get_pipeline_monitor, monitoring_context
-from .providers.factory import get_llm_provider
 
 import boto3
 from botocore.exceptions import ClientError
@@ -692,6 +691,16 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tu
         
         # Generate portrait description using Claude
         try:
+            # Import the pipeline module directly since we're in the app directory
+            from pathlib import Path
+            import sys
+            
+            # Add the parent directory (ai-video-pipeline) to Python path for imports
+            # This allows us to import from both app and pipeline modules
+            parent_dir = str(Path(__file__).parent.parent)
+            if parent_dir not in sys.path:
+                sys.path.insert(0, parent_dir)
+            
             from pipeline.providers.factory import get_llm_provider
             from pipeline.providers.claude_provider import ClaudeProvider
             
@@ -834,6 +843,9 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None, 
         )
         log("[DEBUG] Upload call completed.")
 
+        # Initialize vtt_url variable
+        vtt_url = None
+        
         # Upload VTT subtitle file if provided
         if vtt_local_path and vtt_local_path.exists():
             vtt_key = f"vtts/{job_id}.vtt"
@@ -1002,7 +1014,7 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None, 
 
         # Return URLs as dictionary
         urls = {"video_url": video_url}
-        if vtt_local_path and vtt_local_path.exists() and 'vtt_url' in locals():
+        if vtt_url:
             urls["vtt_url"] = vtt_url
         return urls
 
