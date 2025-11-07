@@ -58,12 +58,12 @@ def compress_image_under_5mb(image_path):
     return base64_image
 
 # ---------- Portrait Description ----------
-async def getPortraitDescription(image) -> str:
+def getPortraitDescription(image_path):
     """
     Get portrait description from Claude API using the portrait image and prompt.
     
     Args:
-        image: Image to analyze (can be file path, bytes, or base64 encoded data)
+        image_path: Path to the image file to analyze
         
     Returns:
         Text description from Claude
@@ -71,68 +71,48 @@ async def getPortraitDescription(image) -> str:
     print("[DEBUG] getPortraitDescription called")
     
     try:
-        from providers.factory import get_llm_provider
+        # Import Anthropic client and compress image
+        from anthropic import Anthropic
         
-        # Get the LLM provider
-        provider = get_llm_provider()
-        print(f"[DEBUG] Using provider: {type(provider).__name__}")
+        # Compress the image first
+        print(f"[DEBUG] Compressing image: {image_path}")
+        compressed_image_base64 = compress_image_under_5mb(image_path)
         
-        # Prepare the image content for Claude with compression
-        import os
+        # Initialize Anthropic client
+        if not settings.CLAUDE_API_KEY:
+            raise ValueError("CLAUDE_API_KEY not found in settings")
         
-        if isinstance(image, str) and os.path.exists(image):
-            # It's a file path, compress and encode the image
-            print(f"[DEBUG] Compressing image: {image}")
-            image_base64 = compress_image_under_5mb(image)
-        elif isinstance(image, bytes):
-            # It's already bytes, encode it (skip compression for raw bytes)
-            image_base64 = base64.b64encode(image).decode('utf-8')
-        elif isinstance(image, str) and image.startswith('data:image'):
-            # It's already a data URL, extract the base64 part (skip compression for data URLs)
-            image_base64 = image.split(',')[1]
-        else:
-            raise ValueError("Invalid image format. Expected file path, bytes, or data URL.")
+        client = Anthropic(api_key=settings.CLAUDE_API_KEY)
         
-        # Prepare messages in the format expected by the provider
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",  # Compressed images are JPEG
-                            "data": image_base64
+        print("[DEBUG] Calling Anthropic API for portrait description...")
+        
+        # Create the message with image and prompt
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": compressed_image_base64
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": PORTRAIT_DESCRIPTION_PROMPT
                         }
-                    },
-                    {
-                        "type": "text",
-                        "text": PORTRAIT_DESCRIPTION_PROMPT
-                    }
-                ]
-            }
-        ]
+                    ]
+                }
+            ]
+        )
         
-        print("[DEBUG] Calling provider.chat_json for portrait description...")
-        
-        # Call the provider - this will be synchronous but we're in an async context
-        response_data = provider.chat_json(messages)
-        
-        print(f"[DEBUG] Portrait description response received: {response_data}")
-        
-        # Extract the text response
-        if isinstance(response_data, dict):
-            # If the response is JSON, try to extract text
-            if 'text' in response_data:
-                description = response_data['text']
-            elif 'content' in response_data:
-                description = response_data['content']
-            else:
-                # Convert the whole response to string
-                description = str(response_data)
-        else:
-            description = str(response_data)
+        # Extract the text from the response
+        description = message.content[0].text
         
         print(f"[DEBUG] Final description: {description}")
         return description
@@ -448,8 +428,8 @@ def main():
         portrait_path = os.getenv("PORTRAIT_PATH", "").strip()
         
         try:
-            # Call the async function to get portrait description
-            portraitDescription = asyncio.run(getPortraitDescription(portrait_path))
+            # Call the function to get portrait description
+            portraitDescription = getPortraitDescription(portrait_path)
             print(f"[DEBUG] Portrait description generated and saved: {portraitDescription}")
         except Exception as e:
             print(f"[WARNING] Failed to generate portrait description: {e}")
