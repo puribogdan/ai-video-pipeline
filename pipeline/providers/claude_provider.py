@@ -2,8 +2,16 @@
 import json
 import anthropic
 import time
+import base64
 from typing import List, Dict, Any
 from .base import LLMProvider
+
+PORTRAIT_DESCRIPTION_PROMPT = """Describe the main subject in this image in one short paragraph. Include:
+- What it is (person, animal, character, etc.)
+- Key visual features (age/size, colors, distinctive characteristics)
+- What they're wearing or how they look.
+Use this format: A [subject] with [key features] wearing/looking [appearance details]
+Keep it under 30 words and focus only on visual details needed to recognize them in an illustration."""
 
 class ClaudeProvider(LLMProvider):
     """Claude API provider implementation"""
@@ -159,3 +167,65 @@ class ClaudeProvider(LLMProvider):
             print(f"[ERROR] Raw content: {repr(content_text)}")
             print(f"[ERROR] Full response object: {response}")
             raise ValueError(f"Claude API returned invalid JSON: {json_error}")
+    
+        def describe_portrait(self, image_path: str) -> str:
+            """
+            Analyze a portrait image and return a description using Claude.
+            
+            Args:
+                image_path: Path to the portrait image file
+                
+            Returns:
+                Portrait description string
+            """
+            try:
+                # Read and encode the image
+                with open(image_path, "rb") as image_file:
+                    image_data = image_file.read()
+                    base64_image = base64.b64encode(image_data).decode('utf-8')
+                
+                # Prepare the request
+                request_params = {
+                    "model": self.model,
+                    "max_tokens": 200,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": PORTRAIT_DESCRIPTION_PROMPT
+                                },
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": "image/jpeg",  # Will be adjusted based on actual file type
+                                        "data": base64_image
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+                
+                # Detect image type for proper media_type
+                if image_path.lower().endswith('.png'):
+                    request_params["messages"][0]["content"][1]["source"]["media_type"] = "image/png"
+                elif image_path.lower().endswith(('.jpg', '.jpeg')):
+                    request_params["messages"][0]["content"][1]["source"]["media_type"] = "image/jpeg"
+                elif image_path.lower().endswith('.webp'):
+                    request_params["messages"][0]["content"][1]["source"]["media_type"] = "image/webp"
+                
+                # Make the API call
+                response = self.client.messages.create(**request_params)
+                
+                if not response.content or not hasattr(response.content[0], 'text'):
+                    raise ValueError("Invalid response from Claude API")
+                    
+                description = response.content[0].text.strip()
+                return description
+                
+            except Exception as e:
+                print(f"[ERROR] Failed to generate portrait description: {e}")
+                raise

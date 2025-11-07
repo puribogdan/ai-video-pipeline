@@ -47,10 +47,21 @@ def detect_portrait_image() -> bool:
     portrait_path = Path(portrait_env)
     return portrait_path.exists() and portrait_path.is_file()
 
-def get_system_prompt(has_portrait: bool = False) -> str:
+def get_portrait_description() -> str:
+    """Get the portrait description from environment variables."""
+    import os
+    return os.getenv("PORTRAIT_DESCRIPTION", "").strip()
+
+def get_system_prompt(has_portrait: bool = False, portrait_description: str = "") -> str:
     """Generate the system prompt based on whether portrait images are available."""
     if has_portrait:
-        return """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
+        portrait_guidance = f"""
+IMPORTANT: Use this portrait description as the main character reference:
+PORTRAIT SUBJECT: {portrait_description}
+Always start scenes by describing this character exactly as shown in the portrait description above.
+"""
+        
+        base_prompt = """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
 
 ---
 
@@ -73,16 +84,16 @@ Each scene must:
 ---
 
 Output format (JSON only):
-{
+{{
   "scenes": [
-    {
+    {{
       "start_time": int,
       "end_time": int,
       "narration": exact words from subtitles,
       "scene_description": "text-to-image prompt"
-    }
+    }}
   ]
-}
+}}
 
 ---
 
@@ -99,9 +110,10 @@ Scene Description Guidelines (for text-to-image generation):
 1. **CRITICAL - Character Descriptions Must Be Explicit:**
    - Start with: "The characters in the image are: ..."
    - List EVERY character with SPECIFIC visual details
-   - ❌ NEVER use generic terms like: " "a group of travelers", "someone", "a person"
+   - ❌ NEVER use generic terms like: "a group of travelers", "someone", "a person"
    - ✅ ALWAYS describe with concrete details: "a purple striped cat wearing a yellow bandana", "a 7-year-old boy with a red baseball cap and blue overalls"
-   - Always start the scenes with the Portrait Subject (person from image[0]) as one of the characters dressed the same as in the referance image.
+   - Always start the scenes with the Portrait Subject using the exact description provided above.
+
 2. **Character Detail Requirements:**
    - Species/type (human, animal, creature)
    - Age or size (if human/humanoid: child, teen, adult, elderly)
@@ -109,7 +121,6 @@ Scene Description Guidelines (for text-to-image generation):
    - Clothing colors, patterns, and style
    - Key accessories (hats, glasses, jewelry, bags)
    
-
 3. **Continuity Rules:**
    - Once a character is introduced with specific traits, use THE EXACT SAME description in every subsequent scene
    - Maintain consistent character appearances, clothing, and colors throughout all scenes
@@ -128,10 +139,10 @@ Narration:
 "They jumped into it. They had fireproof jackets."
 
 ❌ BAD Scene description:
-"The characters in the image are: 'Portrait Subject (person from image[0])', 'a group of travelers'..."
+"The characters in the image are: 'Portrait Subject', 'a group of travelers'..."
 
 ✅ GOOD Scene description:
-"The characters in the image are: Portrait Subject (person from image[0]), a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls, a brown dog with floppy ears wearing a red collar, a gray elephant with white tusks. They are all wearing shiny silver fireproof jackets. The scene shows them mid-jump entering a glowing orange portal surrounded by swirling flames..."
+"The characters in the image are: """ + portrait_description + """", a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls, a brown dog with floppy ears wearing a red collar, a gray elephant with white tusks. They are all wearing shiny silver fireproof jackets. The scene shows them mid-jump entering a glowing orange portal surrounded by swirling flames..."
 
 ---
 
@@ -142,7 +153,9 @@ Summary of Key Rules:
 - Each scene 5–10 seconds long, covering all words in sequence.
 - **Every character must have explicit visual details — NO generic references.**
 - Maintain exact character descriptions across all scenes for continuity.
+- Always start character descriptions with the exact portrait subject description provided.
 """
+        return portrait_guidance + base_prompt
     else:
         return """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
 
@@ -167,16 +180,16 @@ Each scene must:
 ---
 
 Output format (JSON only):
-{
+{{
   "scenes": [
-    {
+    {{
       "start_time": int,
       "end_time": int,
       "narration": exact words from subtitles,
       "scene_description": "text-to-image prompt"
-    }
+    }}
   ]
-}
+}}
 
 ---
 
@@ -203,7 +216,6 @@ Scene Description Guidelines (for text-to-image generation):
    - Clothing colors, patterns, and style
    - Key accessories (hats, glasses, jewelry, bags)
    
-
 3. **Continuity Rules:**
    - Once a character is introduced with specific traits, use THE EXACT SAME description in every subsequent scene
    - Maintain consistent character appearances, clothing, and colors throughout all scenes
@@ -255,13 +267,16 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     # Detect if portrait image is available
     has_portrait = detect_portrait_image()
+    portrait_description = ""
     if has_portrait:
+        portrait_description = get_portrait_description()
         print(f"[DEBUG] Portrait image detected, using portrait-aware prompt format")
+        print(f"[DEBUG] Portrait description: {portrait_description}")
     else:
         print(f"[DEBUG] No portrait image detected, using standard prompt format")
 
     # Get appropriate system prompt based on portrait availability
-    system_prompt = get_system_prompt(has_portrait)
+    system_prompt = get_system_prompt(has_portrait, portrait_description)
 
     payload = {
         "constraints": {"min_secs": MIN_S, "max_secs": MAX_S},

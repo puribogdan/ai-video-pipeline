@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from .email_utils import send_link_email
 from .audio_monitor import AudioUploadMonitor, AudioFileEvent, FileEventType, get_monitor
 from .monitoring import get_monitor as get_pipeline_monitor, monitoring_context
+from .providers.factory import get_llm_provider
 
 import boto3
 from botocore.exceptions import ClientError
@@ -688,6 +689,27 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tu
     if portrait:
         env["PORTRAIT_PATH"] = str(portrait)
         log(f"Staging portrait via PORTRAIT_PATH={portrait}")
+        
+        # Generate portrait description using Claude
+        try:
+            from pipeline.providers.factory import get_llm_provider
+            from pipeline.providers.claude_provider import ClaudeProvider
+            
+            if env.get('CLAUDE_API_KEY'):
+                provider = get_llm_provider()
+                if isinstance(provider, ClaudeProvider):
+                    log(f"[INFO] Generating portrait description for: {portrait}")
+                    portrait_description = provider.describe_portrait(str(portrait))
+                    env["PORTRAIT_DESCRIPTION"] = portrait_description
+                    log(f"[INFO] Generated portrait description: {portrait_description}")
+                else:
+                    log(f"[WARNING] Claude provider not available for portrait description")
+            else:
+                log(f"[WARNING] CLAUDE_API_KEY not set - skipping portrait description generation")
+        except Exception as e:
+            log(f"[ERROR] Failed to generate portrait description: {e}")
+            # Continue without portrait description - don't fail the whole job
+            log(f"[INFO] Continuing without portrait description")
 
     # Forward selected style
     env["STYLE_CHOICE"] = style  # Uses style keys from STYLE_LIBRARY (e.g., kid_friendly_cartoon, japanese_kawaii, etc.)
@@ -980,7 +1002,7 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None, 
 
         # Return URLs as dictionary
         urls = {"video_url": video_url}
-        if vtt_local_path and vtt_local_path.exists():
+        if vtt_local_path and vtt_local_path.exists() and 'vtt_url' in locals():
             urls["vtt_url"] = vtt_url
         return urls
 
