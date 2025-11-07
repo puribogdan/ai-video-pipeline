@@ -218,10 +218,10 @@ def build_subsequent_portrait_prompt(desc: str, style_line: str) -> str:
     portrait_prompt = """
 Maintain character consistency: Preserve the main character's appearance, facial features, and distinctive traits from the reference image. Ensure the character remains recognizable while adapting to the new scene.
 """
-    return f"Use the scene/artwork reference for style: match its exact color palette, lighting, textures, rendering technique, and level of detail. Maintain complete stylistic consistency. {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
+    return f"{style_line} \n {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
 
 def build_subsequent_no_portrait_prompt(desc: str, style_line: str) -> str:
-    return f"Use the scene/artwork reference for style: match its exact color palette, lighting, textures, rendering technique, and level of detail. Maintain complete stylistic consistency.  {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
+    return f"{style_line} \n  {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
 
 # -------------------- Model calls (with enhanced retry) --------------------
 def _run_with_retry(fn, *args, retries: int = 3, delay: float = 1.5, **kwargs):
