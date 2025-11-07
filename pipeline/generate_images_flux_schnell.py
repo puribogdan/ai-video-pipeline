@@ -216,7 +216,7 @@ The goal is recognizable identity within full stylistic integration for new char
 
 def build_subsequent_portrait_prompt(desc: str, style_line: str) -> str:
     portrait_prompt = """
-
+Do not duplicate any character in the image !
 
 
 """
