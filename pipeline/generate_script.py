@@ -1,6 +1,6 @@
 # generate_script.py — Split using FULL subtitles (word-level), keep exact word timings
 from __future__ import annotations
-import json, math, argparse
+import json, math, argparse, asyncio
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
@@ -405,6 +405,24 @@ def main():
 
     if not settings.CLAUDE_API_KEY and not settings.OPENAI_API_KEY:
         raise RuntimeError("Neither CLAUDE_API_KEY nor OPENAI_API_KEY is set. Add at least one to your .env.")
+
+    # Check for portrait image and generate description if available
+    global portraitDescription
+    if detect_portrait_image():
+        print("[DEBUG] Portrait image detected, generating description...")
+        import os
+        portrait_path = os.getenv("PORTRAIT_PATH", "").strip()
+        
+        try:
+            # Call the async function to get portrait description
+            portraitDescription = asyncio.run(getPortraitDescription(portrait_path))
+            print(f"[DEBUG] Portrait description generated and saved: {portraitDescription}")
+        except Exception as e:
+            print(f"[WARNING] Failed to generate portrait description: {e}")
+            portraitDescription = ""  # Reset to empty string on failure
+    else:
+        print("[DEBUG] No portrait image detected, skipping portrait description")
+        portraitDescription = ""
 
     print("[DEBUG] Loading words from subtitles...")
     words = load_words()
