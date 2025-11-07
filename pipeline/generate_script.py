@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
 from tenacity import retry, wait_exponential, stop_after_attempt
-from pipeline.providers.factory import get_llm_provider
-from pipeline.config import settings
+from providers.factory import get_llm_provider
+from config import settings
 
 PROJECT_ROOT = Path(__file__).parent
 SUBS_PATH = PROJECT_ROOT / "subtitles" / "input_subtitles.json"

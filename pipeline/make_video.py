@@ -34,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
-from .config import settings  # loads .env via pydantic-settings
+from config import settings  # loads .env via pydantic-settings
 
 from dotenv import load_dotenv
 import boto3

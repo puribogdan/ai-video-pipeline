@@ -2,7 +2,7 @@
 from .fallback_provider import FallbackLLMProvider
 from .claude_provider import ClaudeProvider
 from .openai_provider import OpenAIProvider
-from ..config import settings
+from config import settings
 
 def get_llm_provider():
     """
