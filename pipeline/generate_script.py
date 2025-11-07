@@ -158,12 +158,16 @@ def detect_portrait_image() -> bool:
 def get_system_prompt(has_portrait: bool = False) -> str:
     """Generate the system prompt based on whether portrait images are available."""
     if has_portrait:
-        return """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
+        # Get the global portrait description
+        global portraitDescription
+        portrait_subject = portraitDescription if portraitDescription else "Portrait Subject"
+        
+        return f"""You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
 
 ---
 
 Input:
-A list WORDS = [{word, start, end}] where start and end are timestamps in seconds relative to 0.
+A list WORDS = [{{"word": "text", "start": 0.0, "end": 8}}] where start and end are timestamps in seconds relative to 0.
 
 ---
 
@@ -181,16 +185,16 @@ Each scene must:
 ---
 
 Output format (JSON only):
-{
+{{
   "scenes": [
-    {
+    {{
       "start_time": int,
       "end_time": int,
       "narration": exact words from subtitles,
       "scene_description": "text-to-image prompt"
-    }
+    }}
   ]
-}
+}}
 
 ---
 
@@ -207,9 +211,10 @@ Scene Description Guidelines (for text-to-image generation):
 1. **CRITICAL - Character Descriptions Must Be Explicit:**
    - Start with: "The characters in the image are: ..."
    - List EVERY character with SPECIFIC visual details
-   - ❌ NEVER use generic terms like: " "a group of travelers", "someone", "a person"
+   - ❌ NEVER use generic terms like: "a group of travelers", "someone", "a person"
    - ✅ ALWAYS describe with concrete details: "a purple striped cat wearing a yellow bandana", "a 7-year-old boy with a red baseball cap and blue overalls"
-   - Always start the scenes with the Portrait Subject (person from image[0]) as one of the characters dressed the same as in the referance image.
+   - **IMPORTANT:** Always start the scenes with the Portrait Subject described as: "{portrait_subject}"
+
 2. **Character Detail Requirements:**
    - Species/type (human, animal, creature)
    - Age or size (if human/humanoid: child, teen, adult, elderly)
@@ -239,7 +244,7 @@ Narration:
 "The characters in the image are: 'Portrait Subject (person from image[0])', 'a group of travelers'..."
 
 ✅ GOOD Scene description:
-"The characters in the image are: Portrait Subject (person from image[0]), a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls, a brown dog with floppy ears wearing a red collar, a gray elephant with white tusks. They are all wearing shiny silver fireproof jackets. The scene shows them mid-jump entering a glowing orange portal surrounded by swirling flames..."
+"The characters in the image are: {portrait_subject}, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls, a brown dog with floppy ears wearing a red collar, a gray elephant with white tusks. They are all wearing shiny silver fireproof jackets. The scene shows them mid-jump entering a glowing orange portal surrounded by swirling flames..."
 
 ---
 
@@ -249,6 +254,7 @@ Summary of Key Rules:
 - Scene timing must align exactly with provided word timestamps.
 - Each scene 5–10 seconds long, covering all words in sequence.
 - **Every character must have explicit visual details — NO generic references.**
+- **Always start with the Portrait Subject: "{portrait_subject}"**
 - Maintain exact character descriptions across all scenes for continuity.
 """
     else:
