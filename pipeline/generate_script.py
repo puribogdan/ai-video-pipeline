@@ -15,6 +15,100 @@ OUT_PATH   = PROJECT_ROOT / "scripts" / "input_script.json"
 MIN_S = 5.0
 MAX_S = 10.0
 
+PORTRAIT_DESCRIPTION_PROMPT = "Describe the main subject in this image in one short paragraph. Include: - What it is (person, animal, character, etc.) - Key visual features (age/size, colors, distinctive characteristics) - What they're wearing or how they look. Use this format: A [subject] with [key features] wearing/looking [appearance details]. Keep it under 30 words and focus only on visual details needed to recognize them in an illustration."
+
+# State variables
+portraitDescription = ""
+
+# ---------- Portrait Description ----------
+async def getPortraitDescription(image) -> str:
+    """
+    Get portrait description from Claude API using the portrait image and prompt.
+    
+    Args:
+        image: Image to analyze (can be file path, bytes, or base64 encoded data)
+        
+    Returns:
+        Text description from Claude
+    """
+    print("[DEBUG] getPortraitDescription called")
+    
+    try:
+        from providers.factory import get_llm_provider
+        
+        # Get the LLM provider
+        provider = get_llm_provider()
+        print(f"[DEBUG] Using provider: {type(provider).__name__}")
+        
+        # Prepare the image content for Claude
+        # Handle different image input formats
+        import base64
+        import os
+        
+        if isinstance(image, str) and os.path.exists(image):
+            # It's a file path, read and encode the image
+            with open(image, 'rb') as f:
+                image_data = f.read()
+            image_base64 = base64.b64encode(image_data).decode('utf-8')
+        elif isinstance(image, bytes):
+            # It's already bytes, encode it
+            image_base64 = base64.b64encode(image).decode('utf-8')
+        elif isinstance(image, str) and image.startswith('data:image'):
+            # It's already a data URL, extract the base64 part
+            image_base64 = image.split(',')[1]
+        else:
+            raise ValueError("Invalid image format. Expected file path, bytes, or data URL.")
+        
+        # Prepare messages in the format expected by the provider
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",  # Assuming JPEG, adjust if needed
+                            "data": image_base64
+                        }
+                    },
+                    {
+                        "type": "text",
+                        "text": PORTRAIT_DESCRIPTION_PROMPT
+                    }
+                ]
+            }
+        ]
+        
+        print("[DEBUG] Calling provider.chat_json for portrait description...")
+        
+        # Call the provider - this will be synchronous but we're in an async context
+        response_data = provider.chat_json(messages)
+        
+        print(f"[DEBUG] Portrait description response received: {response_data}")
+        
+        # Extract the text response
+        if isinstance(response_data, dict):
+            # If the response is JSON, try to extract text
+            if 'text' in response_data:
+                description = response_data['text']
+            elif 'content' in response_data:
+                description = response_data['content']
+            else:
+                # Convert the whole response to string
+                description = str(response_data)
+        else:
+            description = str(response_data)
+        
+        print(f"[DEBUG] Final description: {description}")
+        return description
+        
+    except Exception as e:
+        print(f"[ERROR] getPortraitDescription failed: {type(e).__name__}: {e}")
+        import traceback
+        print(f"[ERROR] Full traceback: {traceback.format_exc()}")
+        raise
+
 # ---------- IO ----------
 def load_words() -> List[Dict[str, Any]]:
     if not SUBS_PATH.exists():
@@ -47,21 +141,10 @@ def detect_portrait_image() -> bool:
     portrait_path = Path(portrait_env)
     return portrait_path.exists() and portrait_path.is_file()
 
-def get_portrait_description() -> str:
-    """Get the portrait description from environment variables."""
-    import os
-    return os.getenv("PORTRAIT_DESCRIPTION", "").strip()
-
-def get_system_prompt(has_portrait: bool = False, portrait_description: str = "") -> str:
+def get_system_prompt(has_portrait: bool = False) -> str:
     """Generate the system prompt based on whether portrait images are available."""
     if has_portrait:
-        portrait_guidance = f"""
-IMPORTANT: Use this portrait description as the main character reference:
-PORTRAIT SUBJECT: {portrait_description}
-Always start scenes by describing this character exactly as shown in the portrait description above.
-"""
-        
-        base_prompt = """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
+        return """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
 
 ---
 
@@ -84,16 +167,16 @@ Each scene must:
 ---
 
 Output format (JSON only):
-{{
+{
   "scenes": [
-    {{
+    {
       "start_time": int,
       "end_time": int,
       "narration": exact words from subtitles,
       "scene_description": "text-to-image prompt"
-    }}
+    }
   ]
-}}
+}
 
 ---
 
@@ -110,10 +193,9 @@ Scene Description Guidelines (for text-to-image generation):
 1. **CRITICAL - Character Descriptions Must Be Explicit:**
    - Start with: "The characters in the image are: ..."
    - List EVERY character with SPECIFIC visual details
-   - ❌ NEVER use generic terms like: "a group of travelers", "someone", "a person"
+   - ❌ NEVER use generic terms like: " "a group of travelers", "someone", "a person"
    - ✅ ALWAYS describe with concrete details: "a purple striped cat wearing a yellow bandana", "a 7-year-old boy with a red baseball cap and blue overalls"
-   - Always start the scenes with the Portrait Subject using the exact description provided above.
-
+   - Always start the scenes with the Portrait Subject (person from image[0]) as one of the characters dressed the same as in the referance image.
 2. **Character Detail Requirements:**
    - Species/type (human, animal, creature)
    - Age or size (if human/humanoid: child, teen, adult, elderly)
@@ -121,6 +203,7 @@ Scene Description Guidelines (for text-to-image generation):
    - Clothing colors, patterns, and style
    - Key accessories (hats, glasses, jewelry, bags)
    
+
 3. **Continuity Rules:**
    - Once a character is introduced with specific traits, use THE EXACT SAME description in every subsequent scene
    - Maintain consistent character appearances, clothing, and colors throughout all scenes
@@ -139,10 +222,10 @@ Narration:
 "They jumped into it. They had fireproof jackets."
 
 ❌ BAD Scene description:
-"The characters in the image are: 'Portrait Subject', 'a group of travelers'..."
+"The characters in the image are: 'Portrait Subject (person from image[0])', 'a group of travelers'..."
 
 ✅ GOOD Scene description:
-"The characters in the image are: """ + portrait_description + """", a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls, a brown dog with floppy ears wearing a red collar, a gray elephant with white tusks. They are all wearing shiny silver fireproof jackets. The scene shows them mid-jump entering a glowing orange portal surrounded by swirling flames..."
+"The characters in the image are: Portrait Subject (person from image[0]), a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls, a brown dog with floppy ears wearing a red collar, a gray elephant with white tusks. They are all wearing shiny silver fireproof jackets. The scene shows them mid-jump entering a glowing orange portal surrounded by swirling flames..."
 
 ---
 
@@ -153,9 +236,7 @@ Summary of Key Rules:
 - Each scene 5–10 seconds long, covering all words in sequence.
 - **Every character must have explicit visual details — NO generic references.**
 - Maintain exact character descriptions across all scenes for continuity.
-- Always start character descriptions with the exact portrait subject description provided.
 """
-        return portrait_guidance + base_prompt
     else:
         return """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
 
@@ -180,16 +261,16 @@ Each scene must:
 ---
 
 Output format (JSON only):
-{{
+{
   "scenes": [
-    {{
+    {
       "start_time": int,
       "end_time": int,
       "narration": exact words from subtitles,
       "scene_description": "text-to-image prompt"
-    }}
+    }
   ]
-}}
+}
 
 ---
 
@@ -216,6 +297,7 @@ Scene Description Guidelines (for text-to-image generation):
    - Clothing colors, patterns, and style
    - Key accessories (hats, glasses, jewelry, bags)
    
+
 3. **Continuity Rules:**
    - Once a character is introduced with specific traits, use THE EXACT SAME description in every subsequent scene
    - Maintain consistent character appearances, clothing, and colors throughout all scenes
@@ -267,16 +349,13 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
     # Detect if portrait image is available
     has_portrait = detect_portrait_image()
-    portrait_description = ""
     if has_portrait:
-        portrait_description = get_portrait_description()
         print(f"[DEBUG] Portrait image detected, using portrait-aware prompt format")
-        print(f"[DEBUG] Portrait description: {portrait_description}")
     else:
         print(f"[DEBUG] No portrait image detected, using standard prompt format")
 
     # Get appropriate system prompt based on portrait availability
-    system_prompt = get_system_prompt(has_portrait, portrait_description)
+    system_prompt = get_system_prompt(has_portrait)
 
     payload = {
         "constraints": {"min_secs": MIN_S, "max_secs": MAX_S},

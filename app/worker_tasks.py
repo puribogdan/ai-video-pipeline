@@ -611,9 +611,6 @@ def _find_portrait_file(job_dir: Path) -> Optional[Path]:
 
 
 def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tuple[Path, Optional[str]]:
-    import sys
-    import os
-    
     log(f"[DEBUG] _run_make_video called with job_dir={job_dir}, hint_audio={hint_audio}")
 
     # Debug: List all files in job directory before waiting
@@ -691,33 +688,6 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tu
     if portrait:
         env["PORTRAIT_PATH"] = str(portrait)
         log(f"Staging portrait via PORTRAIT_PATH={portrait}")
-        
-        # Generate portrait description using Claude
-        try:
-            # Add the parent directory (ai-video-pipeline) to Python path for imports
-            # This allows us to import from both app and pipeline modules
-            parent_dir = str(Path(__file__).parent.parent)
-            if parent_dir not in sys.path:
-                sys.path.insert(0, parent_dir)
-            
-            from pipeline.providers.factory import get_llm_provider
-            from pipeline.providers.claude_provider import ClaudeProvider
-            
-            if env.get('CLAUDE_API_KEY'):
-                provider = get_llm_provider()
-                if isinstance(provider, ClaudeProvider):
-                    log(f"[INFO] Generating portrait description for: {portrait}")
-                    portrait_description = provider.describe_portrait(str(portrait))
-                    env["PORTRAIT_DESCRIPTION"] = portrait_description
-                    log(f"[INFO] Generated portrait description: {portrait_description}")
-                else:
-                    log(f"[WARNING] Claude provider not available for portrait description")
-            else:
-                log(f"[WARNING] CLAUDE_API_KEY not set - skipping portrait description generation")
-        except Exception as e:
-            log(f"[ERROR] Failed to generate portrait description: {e}")
-            # Continue without portrait description - don't fail the whole job
-            log(f"[INFO] Continuing without portrait description")
 
     # Forward selected style
     env["STYLE_CHOICE"] = style  # Uses style keys from STYLE_LIBRARY (e.g., kid_friendly_cartoon, japanese_kawaii, etc.)
@@ -842,9 +812,6 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None, 
         )
         log("[DEBUG] Upload call completed.")
 
-        # Initialize vtt_url variable
-        vtt_url = None
-        
         # Upload VTT subtitle file if provided
         if vtt_local_path and vtt_local_path.exists():
             vtt_key = f"vtts/{job_id}.vtt"
@@ -1013,7 +980,7 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None, 
 
         # Return URLs as dictionary
         urls = {"video_url": video_url}
-        if vtt_url:
+        if vtt_local_path and vtt_local_path.exists():
             urls["vtt_url"] = vtt_url
         return urls
 
