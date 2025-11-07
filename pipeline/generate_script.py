@@ -3,6 +3,9 @@ from __future__ import annotations
 import json, math, argparse, asyncio
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
+from PIL import Image
+import io
+import base64
 
 from tenacity import retry, wait_exponential, stop_after_attempt
 from providers.factory import get_llm_provider
@@ -19,6 +22,40 @@ PORTRAIT_DESCRIPTION_PROMPT = "Describe the main subject in this image in one sh
 
 # State variables
 portraitDescription = ""
+
+# ---------- Image Compression ----------
+def compress_image_under_5mb(image_path):
+    """Compress image to under 5MB for Claude API"""
+    max_size_bytes = 5 * 1024 * 1024  # 5MB in bytes
+    
+    # Open image
+    img = Image.open(image_path)
+    
+    # Convert to RGB if needed (for PNG with transparency)
+    if img.mode in ('RGBA', 'LA', 'P'):
+        img = img.convert('RGB')
+    
+    # Resize to reasonable dimensions first
+    img.thumbnail((1024, 1024))  # Max 1024px on longest side, keeps aspect ratio
+    
+    # Save with optimization
+    buffer = io.BytesIO()
+    img.save(buffer, format='JPEG', quality=85, optimize=True)
+    
+    # If still too large, reduce quality iteratively
+    quality = 85
+    while buffer.tell() > max_size_bytes and quality > 20:
+        buffer = io.BytesIO()
+        quality -= 5
+        img.save(buffer, format='JPEG', quality=quality, optimize=True)
+    
+    # Get the compressed bytes and convert to base64
+    buffer.seek(0)
+    compressed_bytes = buffer.getvalue()
+    base64_image = base64.b64encode(compressed_bytes).decode('utf-8')
+    
+    print(f"[DEBUG] Compressed image to {len(compressed_bytes) / 1024 / 1024:.2f}MB")
+    return base64_image
 
 # ---------- Portrait Description ----------
 async def getPortraitDescription(image) -> str:
@@ -40,21 +77,18 @@ async def getPortraitDescription(image) -> str:
         provider = get_llm_provider()
         print(f"[DEBUG] Using provider: {type(provider).__name__}")
         
-        # Prepare the image content for Claude
-        # Handle different image input formats
-        import base64
+        # Prepare the image content for Claude with compression
         import os
         
         if isinstance(image, str) and os.path.exists(image):
-            # It's a file path, read and encode the image
-            with open(image, 'rb') as f:
-                image_data = f.read()
-            image_base64 = base64.b64encode(image_data).decode('utf-8')
+            # It's a file path, compress and encode the image
+            print(f"[DEBUG] Compressing image: {image}")
+            image_base64 = compress_image_under_5mb(image)
         elif isinstance(image, bytes):
-            # It's already bytes, encode it
+            # It's already bytes, encode it (skip compression for raw bytes)
             image_base64 = base64.b64encode(image).decode('utf-8')
         elif isinstance(image, str) and image.startswith('data:image'):
-            # It's already a data URL, extract the base64 part
+            # It's already a data URL, extract the base64 part (skip compression for data URLs)
             image_base64 = image.split(',')[1]
         else:
             raise ValueError("Invalid image format. Expected file path, bytes, or data URL.")
@@ -68,7 +102,7 @@ async def getPortraitDescription(image) -> str:
                         "type": "image",
                         "source": {
                             "type": "base64",
-                            "media_type": "image/jpeg",  # Assuming JPEG, adjust if needed
+                            "media_type": "image/jpeg",  # Compressed images are JPEG
                             "data": image_base64
                         }
                     },
