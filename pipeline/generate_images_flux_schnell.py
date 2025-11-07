@@ -3,9 +3,9 @@
 # - If PORTRAIT_PATH is set and exists:
 #     • Preprocess once: portrait_cutout = uploaded portrait with background removed (transparent PNG).
 #     • Scene 1 = EDIT using [portrait_cutout] + build_first_image_prompt (with portrait integration)
-#     • Scene 2 = EDIT using [portrait_cutout, scene_001] + build_subsequent_portrait_prompt
-#     • Scene 3+ = EDIT using [portrait_cutout, previous] + build_subsequent_portrait_prompt
-#     • Add the "portrait identity" prompt block to every scene (identity = image[0]; single instance; always included; can be protagonist unless the main subject is non-human, then supporting).
+#     • Scene 2 = EDIT using [scene_001] + build_subsequent_portrait_prompt
+#     • Scene 3+ = EDIT using [previous] + build_subsequent_portrait_prompt
+#     • Add the "portrait identity" prompt block to scene 1 only (portrait integrated in first scene, then used as style reference in subsequent scenes).
 # - Else (no portrait):
 #     • Scene 1 = T2I + build_scene1_prompt
 #     • Scene 2 = EDIT using [scene_001] + build_subsequent_no_portrait_prompt
@@ -202,7 +202,7 @@ def build_first_image_prompt(desc: str, style_line: str, has_portrait: bool) -> 
 
 
 CHARACTER INTEGRATION:
-
+Always include the character from the referance image into the scene
 Preserve for recognition: Overall facial proportions, key distinguishing features (eye shape, nose, mouth structure), hair color and general style, skin tone, clothes
 Transform to match style: Reinterpret all features using the style's artistic language—stylized eyes, simplified or exaggerated proportions where the style demands it, linework and shading techniques, color saturation and treatment
 The character should be recognizable as the reference person, but look like they were illustrated/created using this style's methods, not like a photo with a filter applied
@@ -216,9 +216,7 @@ The goal is recognizable identity within full stylistic integration for new char
 
 def build_subsequent_portrait_prompt(desc: str, style_line: str) -> str:
     portrait_prompt = """
-Do not duplicate any character in the image !
-
-
+Maintain character consistency: Preserve the main character's appearance, facial features, and distinctive traits from the reference image. Ensure the character remains recognizable while adapting to the new scene.
 """
     return f"Use the scene/artwork reference for style: match its exact color palette, lighting, textures, rendering technique, and level of detail. Maintain complete stylistic consistency. {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
 
@@ -414,7 +412,7 @@ def main():
 
     print("🖼️  model=google/nano-banana")
     if portrait_path:
-        print("   strategy: scene_001 = EDIT [portrait_cutout], scene_002 = EDIT [portrait_cutout, scene_001], scene_003+ = EDIT [portrait_cutout, previous] (portrait identity prompt in all scenes)")
+        print("   strategy: scene_001 = EDIT [portrait_cutout], scene_002 = EDIT [scene_001], scene_003+ = EDIT [previous] (portrait identity prompt in scene 1 only)")
     else:
         print("   strategy: scene_001 = T2I, scene_002 = EDIT [scene_001], scene_003+ = EDIT [previous]")
     print(f"   frames: {len(scenes)} (limit={'all' if args.limit is None else args.limit})")
@@ -441,22 +439,22 @@ def main():
             scene_data = {}
 
             if portrait_path:
-                # Use portrait_cutout for all scenes when portrait is present
+                # Use portrait_cutout only for scene 1, then only previous scenes
                 if i == 1:
                     # Scene 1: only needs portrait_path
                     refs = [portrait_path]
                     prompt = build_first_image_prompt(desc=desc, style_line=style_line, has_portrait=True)
                 elif i == 2:
-                    # Scene 2: needs both portrait and scene_001
+                    # Scene 2: needs only scene_001 (no portrait_cutout)
                     if ref_png is None or not ref_png.exists():
                         raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
-                    refs = [portrait_path, ref_png]
+                    refs = [ref_png]
                     prompt = build_subsequent_portrait_prompt(desc=desc, style_line=style_line)
                 else:
-                    # Scene 3+: needs portrait and previous scene
+                    # Scene 3+: needs only previous scene (no portrait_cutout)
                     if prev_png is None or not prev_png.exists():
                         raise RuntimeError(f"Missing references for scene {sid}.")
-                    refs = [portrait_path, prev_png]
+                    refs = [prev_png]
                     prompt = build_subsequent_portrait_prompt(desc=desc, style_line=style_line)
 
                 mode = "edit"
