@@ -611,6 +611,9 @@ def _find_portrait_file(job_dir: Path) -> Optional[Path]:
 
 
 def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tuple[Path, Optional[str]]:
+    import sys
+    import os
+    
     log(f"[DEBUG] _run_make_video called with job_dir={job_dir}, hint_audio={hint_audio}")
 
     # Debug: List all files in job directory before waiting
@@ -691,10 +694,6 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tu
         
         # Generate portrait description using Claude
         try:
-            # Import the pipeline module directly since we're in the app directory
-            from pathlib import Path
-            import sys
-            
             # Add the parent directory (ai-video-pipeline) to Python path for imports
             # This allows us to import from both app and pipeline modules
             parent_dir = str(Path(__file__).parent.parent)

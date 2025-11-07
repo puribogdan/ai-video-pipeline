@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests
 from tenacity import retry, wait_exponential, stop_after_attempt
-from config import settings  # loads DEEPGRAM_API_KEY from .env
+from .config import settings  # loads DEEPGRAM_API_KEY from .env
 
 from get_vtt_subtitle import convert_json_to_vtt
 
