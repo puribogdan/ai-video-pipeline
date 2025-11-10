@@ -503,8 +503,23 @@ def call_llm_api_with_timing(words_payload: List[Dict[str, Any]], timing_scenes:
         "words": words_payload,
         "instruction": (
             "Use the EXACT timing splits from timing_scenes. DO NOT change start_time, end_time, or narration. "
+            "Use the EXACT timing splits from timing_scenes. DO NOT change start_time, end_time, or narration. "
             "ONLY add the 'scene_description' field to each scene. "
             "Create detailed scene descriptions for each scene based on the narration content. "
+            "IMPORTANT: Return the results under the 'scenes' key, not 'timing_scenes'. "
+            "Maintain character consistency and follow all scene description guidelines from the system prompt."
+
+            "ONLY add the 'scene_description' field to each scene. "
+            "ONLY add the 'scene_description' field to each scene. "
+            "Create detailed scene descriptions for each scene based on the narration content. "
+            "IMPORTANT: Return the results under the 'scenes' key, not 'timing_scenes'. "
+            "Maintain character consistency and follow all scene description guidelines from the system prompt."
+
+            "Create detailed scene descriptions for each scene based on the narration content. "
+            "Create detailed scene descriptions for each scene based on the narration content. "
+            "IMPORTANT: Return the results under the 'scenes' key, not 'timing_scenes'. "
+            "Maintain character consistency and follow all scene description guidelines from the system prompt."
+            "IMPORTANT: Return the results under the 'scenes' key, not 'timing_scenes'."
             "Maintain character consistency and follow all scene description guidelines from the system prompt."
         ),
     }
@@ -522,7 +537,10 @@ def call_llm_api_with_timing(words_payload: List[Dict[str, Any]], timing_scenes:
         
         scenes = response_data.get("scenes") or response_data.get("timing_scenes", [])
         if not isinstance(scenes, list) or not scenes:
+
             print(f"[ERROR] No scenes found in response. Available keys: {list(response_data.keys()) if isinstance(response_data, dict) else 'Not a dict'}")
+
+
 
             raise ValueError("Model returned no scenes.")
         scenes = response_data.get("scenes", [])
