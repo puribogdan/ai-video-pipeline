@@ -18,7 +18,7 @@ OUT_PATH   = PROJECT_ROOT / "scripts" / "input_script.json"
 MIN_S = 5.0
 MAX_S = 10.0
 
-PORTRAIT_DESCRIPTION_PROMPT = "Describe the main subject in this image in one short paragraph. Include: - What it is (person, animal, character, etc.) - Key visual features (age/size, colors, distinctive characteristics) - What they're wearing or how they look. Use this format: A [subject] with [key features] wearing/looking [appearance details]. Keep it under 30 words and focus only on visual details needed to recognize them in an illustration."
+PORTRAIT_DESCRIPTION_PROMPT = "Describe the main subject in this image in one short paragraph. Include: - What it is (person, animal, character, etc.) - Key visual features (age/size, colors, distinctive characteristics) - What they're wearing or how they look. No gesture or body position details. Use this format: A [subject] with [key features] wearing/looking [appearance details]. Keep it under 30 words and focus only on visual details needed to recognize them in an illustration."
 
 # State variables
 portraitDescription = ""
@@ -140,6 +140,51 @@ def write_scenes(scenes: List[Dict[str, Any]]):
     OUT_PATH.write_text(json.dumps(scenes, indent=2), encoding="utf-8")
     print(f"✅ Wrote {len(scenes)} scenes to: {OUT_PATH}")
 
+# ---------- Scene Timing Split ----------
+def get_scene_timing_prompt() -> str:
+    """Get prompt for splitting scenes with timing only, no descriptions."""
+    return """You are a video editor. Output ONLY valid JSON.
+
+CRITICAL TIMING RULES (MUST FOLLOW):
+1. Each scene MUST be between 5 and 10 seconds long
+2. Scene duration = end_time - start_time
+3. Use word timestamps exactly as provided
+4. All words must be included exactly once, in order
+5. Split only at word boundaries
+
+Input: WORDS = [{"word": "text", "start": 0, "end": 2}, ...]
+
+Output:
+{
+  "scenes": [
+    {
+      "start_time": <int>,
+      "end_time": <int>,
+      "duration": <int>,  // MUST be between 5-10
+      "narration": "<exact words from timestamps>",
+      "scene_description": ""  // leave empty for now
+    }
+  ]
+}
+
+VALIDATION CHECKLIST:
+- [ ] 5 <= duration <= 10 for ALL scenes
+- [ ] end_time of scene[n] = start_time of scene[n+1]
+- [ ] first scene starts at first word's start
+- [ ] last scene ends at last word's end
+
+Example:
+Input: 0s to 23s total
+Output:
+{
+  "scenes": [
+    {"start_time": 0, "end_time": 8, "duration": 8, "narration": "...", "scene_description": ""},
+    {"start_time": 8, "end_time": 16, "duration": 8, "narration": "...", "scene_description": ""},
+    {"start_time": 16, "end_time": 23, "duration": 7, "narration": "...", "scene_description": ""}
+  ]
+}
+"""
+
 # ---------- LLM Provider ----------
 # Model selection is now handled by the provider
 
@@ -162,194 +207,164 @@ def get_system_prompt(has_portrait: bool = False) -> str:
         global portraitDescription
         portrait_subject = portraitDescription if portraitDescription else "Portrait Subject"
         
-        return f"""You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
+        return f"""You are a creative director for children's storybook illustrations. Output ONLY valid JSON.
+
+Input: A JSON with scenes containing narration. You will fill in the scene_description field.
+
+Task: Generate detailed visual descriptions for image generation based on the narration.
+
+Output: Return the SAME JSON structure with scene_description filled in. Keep all other fields (start_time, end_time, duration, narration) exactly as provided.
 
 ---
 
-Input:
-A list WORDS = [{{"word": "text", "start": 0.0, "end": 8}}] where start and end are timestamps in seconds relative to 0.
+CRITICAL CHARACTER DESCRIPTION RULES:
 
----
-
-Task:
-Split the narration into contiguous SCENES using word indices only.
-
-Each scene must:
-- Use words in order with no overlaps or gaps.
-- Start at index 0 (the first word) and end at the last word.
-- Be between 5.0 and 10.0 seconds long, based on actual word timings.
-- Cuts must occur only at word boundaries.
-- Scene durations must align exactly with word timestamps — do not invent timing.
-- Choose natural narrative breaks (pauses, content changes, or rhythm shifts).
-
----
-
-Output format (JSON only):
-{{
-  "scenes": [
-    {{
-      "start_time": int,
-      "end_time": int,
-      "narration": exact words from subtitles,
-      "scene_description": "text-to-image prompt"
-    }}
-  ]
-}}
-
----
-
-Scene Duration Strategy:
-- Calculate each scene's duration as: end_time - start_time
-- Ensure each scene is between 5.0–10.0 seconds long, not less than 5.0s or more than 10.0s.
-- Adjust the word index boundaries to meet the duration range while keeping all words included once.
-- Total duration must exactly match the narration timing (from first word start to last word end).
-
----
-
-Scene Description Guidelines (for text-to-image generation):
-
-1. **CRITICAL - Character Descriptions Must Be Explicit:**
-   - Start with: "The characters in the image are: ..."
-   - List EVERY character with SPECIFIC visual details
-   - ❌ NEVER use generic terms like: "a group of travelers", "someone", "a person"
-   - ✅ ALWAYS describe with concrete details: "a purple striped cat wearing a yellow bandana", "a 7-year-old boy with a red baseball cap and blue overalls"
-   - **IMPORTANT:** Always start the scenes with the Portrait Subject described as: "{portrait_subject}"
+1. **ALWAYS Start scene_description With Character List:**
+   "The characters in the image are: {portrait_subject}, [character 2 with details], ..."
 
 2. **Character Detail Requirements:**
-   - Species/type (human, animal, creature)
-   - Age or size (if human/humanoid: child, teen, adult, elderly)
-   - Distinctive physical features (fur color, hair color/style, build)
-   - Clothing colors, patterns, and style
-   - Key accessories (hats, glasses, jewelry, bags)
-   
+   - ❌ NEVER: "a person", "someone", "travelers", "a group"
+   - ✅ ALWAYS: Explicit details
+     * Species/type (human, animal, creature)
+     * Age/size (child, teen, adult, elderly)
+     * Physical features (fur color, hair style, build)
+     * Clothing (colors, patterns, style)
+     * Accessories (hats, glasses, jewelry)
 
-3. **Continuity Rules:**
-   - Once a character is introduced with specific traits, use THE EXACT SAME description in every subsequent scene
-   - Maintain consistent character appearances, clothing, and colors throughout all scenes
-   - Keep environmental details and color palettes consistent
+3. **Continuity (CRITICAL):**
+   - First scene: Introduce all characters with full details
+   - All subsequent scenes: Use EXACT SAME character descriptions
+   - Only change: environment, lighting, composition
+   - Maintain: character appearance, clothing colors, accessories across ALL scenes
 
-4. Then describe:
-   - The environment, atmosphere, and lighting in specific, visual detail
-   - The moment as a static, cinematic frame — not continuous action
-   - Use clear, concrete, kid-friendly language focused only on what can be visually seen
+4. **Portrait Subject Rule:**
+   - ALWAYS list first: {portrait_subject}
+   - Keep this description identical across ALL scenes
 
----
-
-Example:
-
-Narration:
-"They jumped into it. They had fireproof jackets."
-
-❌ BAD Scene description:
-"The characters in the image are: 'Portrait Subject (person from image[0])', 'a group of travelers'..."
-
-✅ GOOD Scene description:
-"The characters in the image are: {portrait_subject}, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls, a brown dog with floppy ears wearing a red collar, a gray elephant with white tusks. They are all wearing shiny silver fireproof jackets. The scene shows them mid-jump entering a glowing orange portal surrounded by swirling flames..."
+5. **After Character List, Describe:**
+   - Environment and setting
+   - Atmosphere and lighting
+   - Composition as a single cinematic frame
+   - Use concrete, visual, kid-friendly language
 
 ---
 
-Summary of Key Rules:
-- Output only JSON.
-- No missing or extra words.
-- Scene timing must align exactly with provided word timestamps.
-- Each scene 5–10 seconds long, covering all words in sequence.
-- **Every character must have explicit visual details — NO generic references.**
-- **Always start with the Portrait Subject: "{portrait_subject}"**
-- Maintain exact character descriptions across all scenes for continuity.
-"""
-    else:
-        return """You are a creative video editor and storyteller. You must output ONLY valid JSON — no explanations, markdown, or extra text.
+EXAMPLE:
 
----
+Input JSON:
+{
+  "scenes": [
+    {"start_time": 0, "end_time": 7, "duration": 7, "narration": "They jumped into the portal.", "scene_description": ""},
+    {"start_time": 7, "end_time": 14, "duration": 7, "narration": "They had fireproof jackets on.", "scene_description": ""}
+  ]
+}
 
-Input:
-A list WORDS = [{word, start, end}] where start and end are timestamps in seconds relative to 0.
-
----
-
-Task:
-Split the narration into contiguous SCENES using word indices only.
-
-Each scene must:
-- Use words in order with no overlaps or gaps.
-- Start at index 0 (the first word) and end at the last word.
-- Be between 5.0 and 10.0 seconds long, based on actual word timings.
-- Cuts must occur only at word boundaries.
-- Scene durations must align exactly with word timestamps — do not invent timing.
-- Choose natural narrative breaks (pauses, content changes, or rhythm shifts).
-
----
-
-Output format (JSON only):
+Output JSON:
 {
   "scenes": [
     {
-      "start_time": int,
-      "end_time": int,
-      "narration": exact words from subtitles,
-      "scene_description": "text-to-image prompt"
+      "start_time": 0,
+      "end_time": 7,
+      "duration": 7,
+      "narration": "They jumped into the portal.",
+      "scene_description": "The characters in the image are: {portrait_subject}, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls. They are mid-jump entering a glowing orange portal with swirling flames around the edges. The portal emits bright white light. Dark stormy sky in background."
+    },
+    {
+      "start_time": 7,
+      "end_time": 14,
+      "duration": 7,
+      "narration": "They had fireproof jackets on.",
+      "scene_description": "The characters in the image are: {portrait_subject}, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls. They are now wearing shiny silver fireproof jackets over their regular clothing. They stand confidently inside a cavern with orange glowing lava in the background."
     }
   ]
 }
 
 ---
 
-Scene Duration Strategy:
-- Calculate each scene's duration as: end_time - start_time
-- Ensure each scene is between 5.0–10.0 seconds long, not less than 5.0s or more than 10.0s.
-- Adjust the word index boundaries to meet the duration range while keeping all words included once.
-- Total duration must exactly match the narration timing (from first word start to last word end).
+Remember: 
+- Keep start_time, end_time, duration, narration EXACTLY as provided
+- ONLY fill in scene_description field
+- Use IDENTICAL character descriptions across all scenes
+"""
+    else:
+        return """You are a creative director for children's storybook illustrations. Output ONLY valid JSON.
+
+Input: A JSON with scenes containing narration. You will fill in the scene_description field.
+
+Task: Generate detailed visual descriptions for image generation based on the narration.
+
+Output: Return the SAME JSON structure with scene_description filled in. Keep all other fields (start_time, end_time, duration, narration) exactly as provided.
 
 ---
 
-Scene Description Guidelines (for text-to-image generation):
+CRITICAL CHARACTER DESCRIPTION RULES:
 
-1. **CRITICAL - Character Descriptions Must Be Explicit:**
-   - Start with: "The characters in the image are: ..."
-   - List EVERY character with SPECIFIC visual details
-   - ❌ NEVER use generic terms like: "the person from image[0]", "a group of travelers", "someone", "a person"
-   - ✅ ALWAYS describe with concrete details: "a purple striped cat wearing a yellow bandana", "a 7-year-old boy with a red baseball cap and blue overalls"
-   
+1. **ALWAYS Start scene_description With Character List:**
+   "The characters in the image are: {portrait_subject}, [character 2 with details], ..."
+
 2. **Character Detail Requirements:**
-   - Species/type (human, animal, creature)
-   - Age or size (if human/humanoid: child, teen, adult, elderly)
-   - Distinctive physical features (fur color, hair color/style, build)
-   - Clothing colors, patterns, and style
-   - Key accessories (hats, glasses, jewelry, bags)
-   
+   - ❌ NEVER: "a person", "someone", "travelers", "a group"
+   - ✅ ALWAYS: Explicit details
+     * Species/type (human, animal, creature)
+     * Age/size (child, teen, adult, elderly)
+     * Physical features (fur color, hair style, build)
+     * Clothing (colors, patterns, style)
+     * Accessories (hats, glasses, jewelry)
 
-3. **Continuity Rules:**
-   - Once a character is introduced with specific traits, use THE EXACT SAME description in every subsequent scene
-   - Maintain consistent character appearances, clothing, and colors throughout all scenes
-   - Keep environmental details and color palettes consistent
+3. **Continuity (CRITICAL):**
+   - First scene: Introduce all characters with full details
+   - All subsequent scenes: Use EXACT SAME character descriptions
+   - Only change: environment, lighting, composition
+   - Maintain: character appearance, clothing colors, accessories across ALL scenes
 
-4. Then describe:
-   - The environment, atmosphere, and lighting in specific, visual detail
-   - The moment as a static, cinematic frame — not continuous action
-   - Use clear, concrete, kid-friendly language focused only on what can be visually seen
+4. **Portrait Subject Rule:**
+   - ALWAYS list first: {portrait_subject}
+   - Keep this description identical across ALL scenes
 
----
-
-Example:
-
-Narration:
-"They jumped into it. They had fireproof jackets."
-
-❌ BAD Scene description:
-"The characters in the image are: ' 'a group of travelers'..."
-
-✅ GOOD Scene description:
-"The characters in the image are: a young girl with long blonde hair wearing a green dress and white sneakers, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls, a brown dog with floppy ears wearing a red collar, a gray elephant with white tusks. They are all wearing shiny silver fireproof jackets. The scene shows them mid-jump entering a glowing orange portal surrounded by swirling flames..."
+5. **After Character List, Describe:**
+   - Environment and setting
+   - Atmosphere and lighting
+   - Composition as a single cinematic frame
+   - Use concrete, visual, kid-friendly language
 
 ---
 
-Summary of Key Rules:
-- Output only JSON.
-- No missing or extra words.
-- Scene timing must align exactly with provided word timestamps.
-- Each scene 5–10 seconds long, covering all words in sequence.
-- **Every character must have explicit visual details — NO generic references.**
-- Maintain exact character descriptions across all scenes for continuity.
+EXAMPLE:
+
+Input JSON:
+{
+  "scenes": [
+    {"start_time": 0, "end_time": 7, "duration": 7, "narration": "They jumped into the portal.", "scene_description": ""},
+    {"start_time": 7, "end_time": 14, "duration": 7, "narration": "They had fireproof jackets on.", "scene_description": ""}
+  ]
+}
+
+Output JSON:
+{
+  "scenes": [
+    {
+      "start_time": 0,
+      "end_time": 7,
+      "duration": 7,
+      "narration": "They jumped into the portal.",
+      "scene_description": "The characters in the image are: a young blonde girl wearing a green dress and white sneekers, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls. They are mid-jump entering a glowing orange portal with swirling flames around the edges. The portal emits bright white light. Dark stormy sky in background."
+    },
+    {
+      "start_time": 7,
+      "end_time": 14,
+      "duration": 7,
+      "narration": "They had fireproof jackets on.",
+      "scene_description": "The characters in the image are: a young blonde girl wearing a green dress and white sneekers, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls. They are now wearing shiny silver fireproof jackets over their regular clothing. They stand confidently inside a cavern with orange glowing lava in the background."
+    }
+  ]
+}
+
+---
+
+Remember: 
+- Keep start_time, end_time, duration, narration EXACTLY as provided
+- ONLY fill in scene_description field
+- Use IDENTICAL character descriptions across all scenes
 
 """
 
@@ -364,31 +379,24 @@ def chat_json(messages: list, temperature: float | None = None, **kwargs):
 
 
 @retry(wait=wait_exponential(multiplier=1, min=2, max=12), stop=stop_after_attempt(3))
-def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    print("[DEBUG] Making LLM API call...")
-
-    # Detect if portrait image is available
-    has_portrait = detect_portrait_image()
-    if has_portrait:
-        print(f"[DEBUG] Portrait image detected, using portrait-aware prompt format")
-    else:
-        print(f"[DEBUG] No portrait image detected, using standard prompt format")
-
-    # Get appropriate system prompt based on portrait availability
-    system_prompt = get_system_prompt(has_portrait)
-
+def call_scene_timing_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Call LLM API for scene timing split only, no descriptions."""
+    print("[DEBUG] Making scene timing LLM API call...")
+    
+    system_prompt = get_scene_timing_prompt()
+    
     payload = {
         "constraints": {"min_secs": MIN_S, "max_secs": MAX_S},
         "words": words_payload,
         "instruction": (
-            "Return a JSON object with 'scenes' array. Each scene must have start_time, end_time, narration, and scene_description. "
-            "Analyze word timings and create scenes that are between 5-10 seconds each based on what fits the story best. "
+            "Return a JSON object with 'scenes' array. Each scene must have start_time, end_time, duration, and narration. "
+            "Analyze word timings and create scenes that are between 5-10 seconds each. "
             "Set start_time and end_time to create contiguous scenes from 0.0, each 5-10 seconds long. "
             "Use exact words from the input for narration, covering all words exactly once in order. "
-            "Consider natural story breaks and narrative flow when choosing scene lengths."
+            "DO NOT create scene_description - only timing and narration."
         ),
     }
-
+    
     response_data = None
     try:
         response_data = chat_json(
@@ -398,23 +406,78 @@ def call_llm_api(words_payload: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             ],
             temperature=None,
         )
-        print(f"[DEBUG] LLM API call successful, response length: {len(json.dumps(response_data))} characters")
-
+        print(f"[DEBUG] Scene timing LLM API call successful, response length: {len(json.dumps(response_data))} characters")
+        
         scenes = response_data.get("scenes", [])
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("Model returned no scenes.")
-        print(f"[DEBUG] Parsed {len(scenes)} scenes from response")
+        print(f"[DEBUG] Parsed {len(scenes)} scenes from timing response")
         return scenes
-
+        
     except json.JSONDecodeError as e:
-        print(f"[ERROR] Failed to parse JSON response from LLM: {e}")
+        print(f"[ERROR] Failed to parse JSON response from timing LLM: {e}")
         try:
             print(f"[ERROR] Raw response: {json.dumps(response_data) if 'response_data' in locals() else 'No response data'}")
         except:
             print("[ERROR] Could not serialize response data")
         raise
     except Exception as e:
-        print(f"[ERROR] LLM API call failed: {type(e).__name__}: {e}")
+        print(f"[ERROR] Scene timing LLM API call failed: {type(e).__name__}: {e}")
+        raise
+
+
+@retry(wait=wait_exponential(multiplier=1, min=2, max=12), stop=stop_after_attempt(3))
+def call_llm_api_with_timing(words_payload: List[Dict[str, Any]], timing_scenes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Call LLM API to add scene descriptions to pre-split timing scenes."""
+    print("[DEBUG] Making scene description LLM API call with pre-split timing...")
+    
+    # Detect if portrait image is available
+    has_portrait = detect_portrait_image()
+    if has_portrait:
+        print(f"[DEBUG] Portrait image detected, using portrait-aware prompt format")
+    else:
+        print(f"[DEBUG] No portrait image detected, using standard prompt format")
+    
+    # Get appropriate system prompt based on portrait availability
+    system_prompt = get_system_prompt(has_portrait)
+    
+    payload = {
+        "timing_scenes": timing_scenes,
+        "words": words_payload,
+        "instruction": (
+            "Use the EXACT timing splits from timing_scenes. DO NOT change start_time, end_time, or narration. "
+            "ONLY add the 'scene_description' field to each scene. "
+            "Create detailed scene descriptions for each scene based on the narration content. "
+            "Maintain character consistency and follow all scene description guidelines from the system prompt."
+        ),
+    }
+    
+    response_data = None
+    try:
+        response_data = chat_json(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(payload)},
+            ],
+            temperature=None,
+        )
+        print(f"[DEBUG] Scene description LLM API call successful, response length: {len(json.dumps(response_data))} characters")
+        
+        scenes = response_data.get("scenes", [])
+        if not isinstance(scenes, list) or not scenes:
+            raise ValueError("Model returned no scenes.")
+        print(f"[DEBUG] Parsed {len(scenes)} scenes with descriptions from response")
+        return scenes
+        
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] Failed to parse JSON response from scene description LLM: {e}")
+        try:
+            print(f"[ERROR] Raw response: {json.dumps(response_data) if 'response_data' in locals() else 'No response data'}")
+        except:
+            print("[ERROR] Could not serialize response data")
+        raise
+    except Exception as e:
+        print(f"[ERROR] Scene description LLM API call failed: {type(e).__name__}: {e}")
         raise
 
 
@@ -454,21 +517,28 @@ def main():
         for i, w in enumerate(words)
     ]
 
-    print(f"[DEBUG] Sending {len(words_payload)} word-level subtitles to LLM provider to choose scene splits (5–10s preferred)…")
+    print(f"[DEBUG] Step 1: Getting scene timing splits...")
     try:
-        plan = call_llm_api(words_payload)
-        print(f"[DEBUG] LLM returned {len(plan)} scene plans")
+        timing_scenes = call_scene_timing_api(words_payload)
+        print(f"[DEBUG] Scene timing API returned {len(timing_scenes)} scenes")
     except Exception as e:
-        print(f"[ERROR] LLM API call failed: {e}")
+        print(f"[ERROR] Scene timing LLM API call failed: {e}")
         import traceback
         print(f"[ERROR] Full traceback: {traceback.format_exc()}")
         raise
 
-    print("[DEBUG] Using scenes directly from LLM response...")
-    scenes = plan
-    print(f"[DEBUG] Using {len(scenes)} scenes from LLM")
+    print(f"[DEBUG] Step 2: Getting scene descriptions for timing splits...")
+    try:
+        scenes_with_descriptions = call_llm_api_with_timing(words_payload, timing_scenes)
+        print(f"[DEBUG] Scene description API returned {len(scenes_with_descriptions)} scenes with descriptions")
+    except Exception as e:
+        print(f"[ERROR] Scene description LLM API call failed: {e}")
+        import traceback
+        print(f"[ERROR] Full traceback: {traceback.format_exc()}")
+        raise
 
-    write_scenes(scenes)
+    print(f"[DEBUG] Using {len(scenes_with_descriptions)} final scenes with descriptions")
+    write_scenes(scenes_with_descriptions)
 
 if __name__ == "__main__":
     main()
