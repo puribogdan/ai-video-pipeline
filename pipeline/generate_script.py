@@ -143,7 +143,7 @@ def write_scenes(scenes: List[Dict[str, Any]]):
 # ---------- Scene Timing Split ----------
 def get_scene_timing_prompt() -> str:
     """Get prompt for splitting scenes with timing only, no descriptions."""
-    return """You are a video editor. Output ONLY valid JSON.
+    return """You are a video editor and storyteller. Output ONLY valid JSON.
 
 CRITICAL TIMING RULES (MUST FOLLOW):
 1. Each scene MUST be between 5 and 10 seconds long
@@ -151,6 +151,28 @@ CRITICAL TIMING RULES (MUST FOLLOW):
 3. Use word timestamps exactly as provided
 4. All words must be included exactly once, in order
 5. Split only at word boundaries
+
+NARRATIVE SPLIT RULES (EQUALLY IMPORTANT):
+1. Look for natural story breaks:
+   - Topic/location changes ("Then they went...", "Meanwhile...", "Suddenly...")
+   - Character actions completing ("She opened the door.", "He smiled.")
+   - Dialogue shifts (new speaker or response)
+   - Emotional beats (pauses, reactions, revelations)
+   - Time transitions ("The next day...", "Hours later...")
+
+2. Prioritize story coherence within timing constraints:
+   - Keep related thoughts together in one scene
+   - Don't cut mid-action or mid-sentence if possible
+   - Scene should feel like a complete visual moment
+
+3. Decision process:
+   - Find natural break points in the narration
+   - Check if the resulting scene duration is 5-10 seconds
+   - If yes: split there
+   - If no: look for the nearest natural break within the 5-10 second window
+   - Balance story logic with timing constraints
+
+---
 
 Input: WORDS = [{"word": "text", "start": 0, "end": 2}, ...]
 
@@ -172,17 +194,56 @@ VALIDATION CHECKLIST:
 - [ ] end_time of scene[n] = start_time of scene[n+1]
 - [ ] first scene starts at first word's start
 - [ ] last scene ends at last word's end
+- [ ] Each scene break occurs at a natural narrative point
 
-Example:
-Input: 0s to 23s total
-Output:
+---
+
+EXAMPLES:
+
+❌ BAD (mechanical 8-second splits):
+Narration: "The cat walked to the door. She paused and listened carefully. Then she opened it and gasped."
+- Scene 1 (0-8s): "The cat walked to the door. She paused and listened"
+- Scene 2 (8-15s): "carefully. Then she opened it and gasped."
+(Cuts mid-thought and splits "listened carefully")
+
+✅ GOOD (story-aware splits):
+- Scene 1 (0-6s): "The cat walked to the door."
+- Scene 2 (6-14s): "She paused and listened carefully. Then she opened it and gasped."
+(Natural break after action completes, keeps related moments together)
+
+---
+
+Example Process:
+
+Narration: "They jumped into the portal. Flames surrounded them but their fireproof jackets kept them safe. On the other side was a crystal cave."
+
+Timing: 0s to 18s total
+
+Step 1: Identify natural breaks:
+- After "portal." (topic complete)
+- After "safe." (action complete) 
+- After "cave." (new location revealed)
+
+Step 2: Check durations:
+- 0s to 4s ("They jumped into the portal.") = 4s ❌ too short
+- 0s to 11s ("...kept them safe.") = 11s ❌ too long
+- 0s to 7s ("...surrounded them") = 7s ✓ within range
+- 7s to 18s ("...crystal cave.") = 11s ❌ too long
+- 7s to 13s ("...kept them safe.") = 6s ✓ within range
+- 13s to 18s ("...crystal cave.") = 5s ✓ within range
+
+Step 3: Final split:
 {
   "scenes": [
-    {"start_time": 0, "end_time": 8, "duration": 8, "narration": "...", "scene_description": ""},
-    {"start_time": 8, "end_time": 16, "duration": 8, "narration": "...", "scene_description": ""},
-    {"start_time": 16, "end_time": 23, "duration": 7, "narration": "...", "scene_description": ""}
+    {"start_time": 0, "end_time": 7, "duration": 7, "narration": "They jumped into the portal. Flames surrounded them", "scene_description": ""},
+    {"start_time": 7, "end_time": 13, "duration": 6, "narration": "but their fireproof jackets kept them safe.", "scene_description": ""},
+    {"start_time": 13, "end_time": 18, "duration": 5, "narration": "On the other side was a crystal cave.", "scene_description": ""}
   ]
 }
+
+---
+
+Remember: Find the best story break WITHIN the 5-10 second timing constraint. Don't just split at exactly 8 seconds every time.
 """
 
 # ---------- LLM Provider ----------
@@ -459,6 +520,10 @@ def call_llm_api_with_timing(words_payload: List[Dict[str, Any]], timing_scenes:
         )
         print(f"[DEBUG] Scene description LLM API call successful, response length: {len(json.dumps(response_data))} characters")
         
+        scenes = response_data.get("scenes") or response_data.get("timing_scenes", [])
+        if not isinstance(scenes, list) or not scenes:
+            print(f"[ERROR] No scenes found in response. Available keys: {list(response_data.keys()) if isinstance(response_data, dict) else 'Not a dict'}")
+            raise ValueError("Model returned no scenes.")
         scenes = response_data.get("scenes", [])
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("Model returned no scenes.")
