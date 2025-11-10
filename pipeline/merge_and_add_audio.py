@@ -31,6 +31,105 @@ AUDIO_ORIG = AUDIO_DIR / "input.mp3"
 FINAL_VIDEO = ROOT / "final_video.mp4"
 LIST_FILE = CHUNKS_DIR / "chunks.txt"
 
+# Logo animation configuration (using settings if available)
+try:
+    from config import settings
+    LOGO_ANIMATION = ROOT / settings.LOGO_ANIMATION_PATH
+    LOGO_ENABLED = settings.LOGO_ENABLED
+    LOGO_POSITION = getattr(settings, 'LOGO_POSITION', 'end')
+except ImportError:
+    # Fallback to hardcoded values if settings not available
+    LOGO_ANIMATION = ROOT / "logo_animation.mp4"
+    LOGO_ENABLED = True
+    LOGO_POSITION = 'end'
+
+
+def prepare_video_with_logo(chunks: List[Path], output_path: Path) -> Path:
+    """
+    Prepare the final video by concatenating chunks and adding logo animation if enabled.
+    
+    Args:
+        chunks: List of video chunk files
+        output_path: Path where the intermediate video (with logo) will be saved
+        
+    Returns:
+        Path to the video with logo added
+    """
+    if not LOGO_ENABLED or not LOGO_ANIMATION.exists():
+        print(f"[LOG] Logo animation disabled or not found, using chunks only")
+        return concatenate_chunks_only(chunks, output_path)
+    
+    print(f"[LOG] Adding logo animation at {LOGO_POSITION}: {LOGO_ANIMATION}")
+    
+    # Create a temporary file for chunks-only concatenation
+    temp_video = output_path.parent / "temp_chunks_only.mp4"
+    concatenate_chunks_only(chunks, temp_video)
+    
+    # Create a list file for ffmpeg concat based on position
+    concat_list = output_path.parent / "logo_concat_list.txt"
+    with concat_list.open("w", encoding="utf-8") as f:
+        if LOGO_POSITION == 'start':
+            # Logo at start
+            f.write(f"file '{LOGO_ANIMATION.as_posix()}'\n")
+            f.write(f"file '{temp_video.as_posix()}'\n")
+        else:
+            # Logo at end (default)
+            f.write(f"file '{temp_video.as_posix()}'\n")
+            f.write(f"file '{LOGO_ANIMATION.as_posix()}'\n")
+    
+    # Use ffmpeg to concatenate the chunks with logo
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0", "-i", str(concat_list),
+        "-c", "copy",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    
+    print("RUN:", " ".join(cmd), flush=True)
+    subprocess.run(cmd, check=True)
+    
+    # Clean up temporary files
+    try:
+        temp_video.unlink()
+        concat_list.unlink()
+    except Exception as e:
+        print(f"Warning: Could not clean up temporary files: {e}")
+    
+    return output_path
+
+
+def concatenate_chunks_only(chunks: List[Path], output_path: Path) -> Path:
+    """
+    Concatenate video chunks without adding logo.
+    
+    Args:
+        chunks: List of video chunk files
+        output_path: Path where the concatenated video will be saved
+        
+    Returns:
+        Path to the concatenated video
+    """
+    # Write concat list file for ffmpeg
+    LIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with LIST_FILE.open("w", encoding="utf-8") as f:
+        for chunk in chunks:
+            f.write(f"file '{chunk.as_posix()}'\n")
+    
+    # ffmpeg command for concatenation only
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0", "-i", str(LIST_FILE),
+        "-c", "copy",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    
+    print("RUN:", " ".join(cmd), flush=True)
+    subprocess.run(cmd, check=True)
+    
+    return output_path
+
 # Import progressive processing modules
 try:
     from .streaming_audio_io import StreamingAudioIO, AudioStreamInfo, AudioFormat
@@ -258,6 +357,12 @@ def main():
         print(f"ERROR: No chunks found in {CHUNKS_DIR}", file=sys.stderr)
         sys.exit(1)
 
+    # Step 1: Prepare video with chunks and logo animation
+    video_with_logo = FINAL_VIDEO.parent / "video_with_logo.mp4"
+    print(f"[LOG] Preparing video with logo animation...")
+    prepare_video_with_logo(chunks, video_with_logo)
+
+    # Step 2: Add audio to the video with logo
     # Pick audio
     print(f"[LOG] merge_and_add_audio checking: {AUDIO_TRIMMED} (exists: {AUDIO_TRIMMED.exists()}, size: {AUDIO_TRIMMED.stat().st_size if AUDIO_TRIMMED.exists() else 0}), {AUDIO_ORIG} (exists: {AUDIO_ORIG.exists()}, size: {AUDIO_ORIG.stat().st_size if AUDIO_ORIG.exists() else 0})")
 
@@ -271,32 +376,29 @@ def main():
 
     print(f"[LOG] Selected audio: {audio_path} (ext: {audio_path.suffix})")
 
-    # Determine processing method based on audio file size
-    use_streaming = should_use_streaming_audio(audio_path)
-    file_size_mb = audio_path.stat().st_size / (1024 * 1024)
+    # Use ffmpeg to add audio to the video with logo
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(video_with_logo),
+        "-i", str(audio_path),
+        "-filter_complex", "[1:a]apad[a]",
+        "-map", "0:v:0", "-map", "[a]",
+        "-c:v", "copy",
+        "-c:a", "aac", "-b:a", "192k",
+        "-shortest",
+        "-movflags", "+faststart",
+        str(FINAL_VIDEO),
+    ]
 
-    print(f"[LOG] Audio file size: {file_size_mb:.1f}MB")
-    print(f"[LOG] Using {'streaming' if use_streaming else 'traditional'} processing")
-
+    print("RUN:", " ".join(cmd), flush=True)
+    subprocess.run(cmd, check=True)
+    
+    # Clean up intermediate file
     try:
-        if use_streaming:
-            # Use async streaming approach for large files
-            asyncio.run(merge_audio_with_streaming(chunks, audio_path, FINAL_VIDEO))
-        else:
-            # Use traditional synchronous approach for smaller files
-            run_traditional_ffmpeg_merge(chunks, audio_path, FINAL_VIDEO)
-
+        video_with_logo.unlink()
+        print(f"[LOG] Cleaned up intermediate file: {video_with_logo}")
     except Exception as e:
-        logger.error(f"Audio merge failed: {e}")
-        if use_streaming:
-            logger.info("Falling back to traditional method")
-            try:
-                run_traditional_ffmpeg_merge(chunks, audio_path, FINAL_VIDEO)
-            except Exception as fallback_error:
-                logger.error(f"Fallback also failed: {fallback_error}")
-                sys.exit(1)
-        else:
-            sys.exit(1)
+        print(f"Warning: Could not clean up intermediate file: {e}")
 
     # Get video duration after successful merge
     def get_video_duration(file_path: Path) -> int:
@@ -317,6 +419,11 @@ def main():
     video_duration = get_video_duration(FINAL_VIDEO)
     print(f"✅ Wrote: {FINAL_VIDEO}")
     print(f"VIDEO_DURATION: {video_duration}")
+    
+    if LOGO_ENABLED and LOGO_ANIMATION.exists():
+        print(f"✅ Logo animation added at {LOGO_POSITION}: {LOGO_ANIMATION}")
+    else:
+        print(f"[LOG] Logo animation not added (disabled or file not found)")
 
 if __name__ == "__main__":
     main()
