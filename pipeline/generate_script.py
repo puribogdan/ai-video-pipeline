@@ -523,6 +523,7 @@ def call_llm_api_with_timing(words_payload: List[Dict[str, Any]], timing_scenes:
         scenes = response_data.get("scenes") or response_data.get("timing_scenes", [])
         if not isinstance(scenes, list) or not scenes:
             print(f"[ERROR] No scenes found in response. Available keys: {list(response_data.keys()) if isinstance(response_data, dict) else 'Not a dict'}")
+
             raise ValueError("Model returned no scenes.")
         scenes = response_data.get("scenes", [])
         if not isinstance(scenes, list) or not scenes:
