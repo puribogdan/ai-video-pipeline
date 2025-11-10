@@ -252,32 +252,32 @@ CRITICAL CHARACTER DESCRIPTION RULES:
 EXAMPLE:
 
 Input JSON:
-{
+{{
   "scenes": [
-    {"start_time": 0, "end_time": 7, "duration": 7, "narration": "They jumped into the portal.", "scene_description": ""},
-    {"start_time": 7, "end_time": 14, "duration": 7, "narration": "They had fireproof jackets on.", "scene_description": ""}
+    {{"start_time": 0, "end_time": 7, "duration": 7, "narration": "They jumped into the portal.", "scene_description": ""}},
+    {{"start_time": 7, "end_time": 14, "duration": 7, "narration": "They had fireproof jackets on.", "scene_description": ""}}
   ]
-}
+}}
 
 Output JSON:
-{
+{{
   "scenes": [
-    {
+    {{
       "start_time": 0,
       "end_time": 7,
       "duration": 7,
       "narration": "They jumped into the portal.",
       "scene_description": "The characters in the image are: {portrait_subject}, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls. They are mid-jump entering a glowing orange portal with swirling flames around the edges. The portal emits bright white light. Dark stormy sky in background."
-    },
-    {
+    }},
+    {{
       "start_time": 7,
       "end_time": 14,
       "duration": 7,
       "narration": "They had fireproof jackets on.",
       "scene_description": "The characters in the image are: {portrait_subject}, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls. They are now wearing shiny silver fireproof jackets over their regular clothing. They stand confidently inside a cavern with orange glowing lava in the background."
-    }
+    }}
   ]
-}
+}}
 
 ---
 
@@ -300,7 +300,7 @@ Output: Return the SAME JSON structure with scene_description filled in. Keep al
 CRITICAL CHARACTER DESCRIPTION RULES:
 
 1. **ALWAYS Start scene_description With Character List:**
-   "The characters in the image are: {portrait_subject}, [character 2 with details], ..."
+   "The characters in the image are: [character 1 with details], [character 2 with details], ..."
 
 2. **Character Detail Requirements:**
    - ❌ NEVER: "a person", "someone", "travelers", "a group"
@@ -317,11 +317,7 @@ CRITICAL CHARACTER DESCRIPTION RULES:
    - Only change: environment, lighting, composition
    - Maintain: character appearance, clothing colors, accessories across ALL scenes
 
-4. **Portrait Subject Rule:**
-   - ALWAYS list first: {portrait_subject}
-   - Keep this description identical across ALL scenes
-
-5. **After Character List, Describe:**
+4. **After Character List, Describe:**
    - Environment and setting
    - Atmosphere and lighting
    - Composition as a single cinematic frame
@@ -347,14 +343,14 @@ Output JSON:
       "end_time": 7,
       "duration": 7,
       "narration": "They jumped into the portal.",
-      "scene_description": "The characters in the image are: a young blonde girl wearing a green dress and white sneekers, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls. They are mid-jump entering a glowing orange portal with swirling flames around the edges. The portal emits bright white light. Dark stormy sky in background."
+      "scene_description": "The characters in the image are: a young blonde girl wearing a green dress and white sneakers, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls. They are mid-jump entering a glowing orange portal with swirling flames around the edges. The portal emits bright white light. Dark stormy sky in background."
     },
     {
       "start_time": 7,
       "end_time": 14,
       "duration": 7,
       "narration": "They had fireproof jackets on.",
-      "scene_description": "The characters in the image are: a young blonde girl wearing a green dress and white sneekers, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls. They are now wearing shiny silver fireproof jackets over their regular clothing. They stand confidently inside a cavern with orange glowing lava in the background."
+      "scene_description": "The characters in the image are: a young blonde girl wearing a green dress and white sneakers, a purple striped cat with orange eyes wearing a yellow bandana, a 7-year-old boy with a red baseball cap and blue overalls. They are now wearing shiny silver fireproof jackets over their regular clothing. They stand confidently inside a cavern with orange glowing lava in the background."
     }
   ]
 }
