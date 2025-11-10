@@ -214,11 +214,34 @@ The goal is recognizable identity within full stylistic integration for new char
     else:
         return f"{style_line} \nSCENE BRIEF: {desc}"
 
-def build_subsequent_portrait_prompt(desc: str, style_line: str) -> str:
-    portrait_prompt = """
+def load_portrait_description() -> str:
+    """Load portrait description from the input script if available."""
+    try:
+        if SCRIPT_PATH.exists():
+            data = json.loads(SCRIPT_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, list) and data:
+                # Look for portrait description in the first scene's scene_description
+                first_scene = data[0]
+                if "scene_description" in first_scene:
+                    desc = first_scene["scene_description"]
+                    # Extract character description from scene description
+                    if "The characters in the image are:" in desc:
+                        # Extract the first part up to the period
+                        parts = desc.split("The characters in the image are: ")
+                        if len(parts) > 1:
+                            character_part = parts[1].split(".")[0].strip()
+                            return character_part
+        return ""
+    except Exception as e:
+        print(f"Warning: Could not load portrait description: {e}")
+        return ""
+
+def build_subsequent_portrait_prompt(desc: str, style_line: str, portrait_description: str = "") -> str:
+    portrait_prompt = f"""
+
 Maintain character consistency: Preserve the main character's appearance, facial features, and distinctive traits from the reference image. Ensure the character remains recognizable while adapting to the new scene.
 """
-    return f"{style_line} \n {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
+    return f"{style_line} \n This character should always be front facing the camera: {portrait_description} {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
 
 def build_subsequent_no_portrait_prompt(desc: str, style_line: str) -> str:
     return f"{style_line} \n  {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
@@ -402,6 +425,13 @@ def main():
         else:
             print(f"⚠️ PORTRAIT_PATH set but file not found: {src}")
 
+    # Load portrait description from input script
+    portrait_description = load_portrait_description()
+    if portrait_description:
+        print(f"👤 Loaded portrait description: {portrait_description}")
+    else:
+        print(f"⚠️ No portrait description found in input script")
+
     scenes = load_scenes()
     if args.limit is not None:
         scenes = scenes[:max(1, args.limit)]
@@ -449,13 +479,13 @@ def main():
                     if ref_png is None or not ref_png.exists():
                         raise RuntimeError("scene_001.png not found; cannot perform edit for scene 002.")
                     refs = [ref_png]
-                    prompt = build_subsequent_portrait_prompt(desc=desc, style_line=style_line)
+                    prompt = build_subsequent_portrait_prompt(desc=desc, style_line=style_line, portrait_description=portrait_description)
                 else:
                     # Scene 3+: needs only previous scene (no portrait_cutout)
                     if prev_png is None or not prev_png.exists():
                         raise RuntimeError(f"Missing references for scene {sid}.")
                     refs = [prev_png]
-                    prompt = build_subsequent_portrait_prompt(desc=desc, style_line=style_line)
+                    prompt = build_subsequent_portrait_prompt(desc=desc, style_line=style_line, portrait_description=portrait_description)
 
                 mode = "edit"
                 scene_data = {
