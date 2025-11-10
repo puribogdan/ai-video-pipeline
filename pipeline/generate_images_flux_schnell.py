@@ -215,22 +215,14 @@ The goal is recognizable identity within full stylistic integration for new char
         return f"{style_line} \nSCENE BRIEF: {desc}"
 
 def load_portrait_description() -> str:
-    """Load portrait description from the input script if available."""
+    """Load portrait description from the saved portrait description file."""
     try:
-        if SCRIPT_PATH.exists():
-            data = json.loads(SCRIPT_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, list) and data:
-                # Look for portrait description in the first scene's scene_description
-                first_scene = data[0]
-                if "scene_description" in first_scene:
-                    desc = first_scene["scene_description"]
-                    # Extract character description from scene description
-                    if "The characters in the image are:" in desc:
-                        # Extract the first part up to the period
-                        parts = desc.split("The characters in the image are: ")
-                        if len(parts) > 1:
-                            character_part = parts[1].split(".")[0].strip()
-                            return character_part
+        portrait_desc_file = ROOT / "scripts" / "portrait_description.txt"
+        if portrait_desc_file.exists():
+            description = portrait_desc_file.read_text(encoding="utf-8").strip()
+            if description:
+                print(f"👤 Loaded portrait description from file: {description}")
+                return description
         return ""
     except Exception as e:
         print(f"Warning: Could not load portrait description: {e}")
@@ -239,9 +231,8 @@ def load_portrait_description() -> str:
 def build_subsequent_portrait_prompt(desc: str, style_line: str, portrait_description: str = "") -> str:
     portrait_prompt = f"""
 
-Maintain character consistency: Preserve the main character's appearance, facial features, and distinctive traits from the reference image. Ensure the character remains recognizable while adapting to the new scene.
 """
-    return f"{style_line} \n This character should always be front facing the camera: {portrait_description} {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
+    return f"{style_line} \n\n This character should always be front facing the camera: {portrait_description} {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
 
 def build_subsequent_no_portrait_prompt(desc: str, style_line: str) -> str:
     return f"{style_line} \n  {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"

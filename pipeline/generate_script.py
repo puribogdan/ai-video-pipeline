@@ -586,6 +586,12 @@ def main():
     else:
         print("[DEBUG] No portrait image detected, skipping portrait description")
         portraitDescription = ""
+    
+    # Save portrait description to a file for use by image generation scripts
+    portrait_desc_file = PROJECT_ROOT / "scripts" / "portrait_description.txt"
+    portrait_desc_file.parent.mkdir(parents=True, exist_ok=True)
+    portrait_desc_file.write_text(portraitDescription, encoding="utf-8")
+    print(f"[DEBUG] Saved portrait description to: {portrait_desc_file}")
 
     print("[DEBUG] Loading words from subtitles...")
     words = load_words()
