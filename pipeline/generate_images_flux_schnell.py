@@ -94,8 +94,14 @@ STYLE_LIBRARY: Dict[str, str] = {
 DEFAULT_STYLE_KEY = "kid_friendly_cartoon"  # fallback if env not set
 
 # -------------------- Camera Angle Variation Prompt --------------------
-CAMERA_ANGLE_PROMPT = """Add variation:
-Use a different camera angle or framing for this image — for example, a close-up, wide shot, low angle, high angle, or over-the-shoulder view — while keeping the same style and subject consistency."""
+CAMERA_ANGLE_PROMPT = """
+Use different camera distances, angles, and framings to create visual interest while keeping her face visible:
+- Distance: close-up, medium shot, wide shot, extreme close-up (face focus)
+- Angles: eye-level, slight low angle, slight high angle, dutch angle (tilted), three-quarter view
+- Framing: centered, rule of thirds, leading lines, foreground framing
+- Perspective: straight-on, 3/4 angle (face turned slightly but still visible)
+
+Avoid: extreme low/high angles, back views, profile-only shots, or any framing that would obscure her face."""
 
 # -------------------- Helpers --------------------
 def load_scenes() -> List[Dict[str, Any]]:
@@ -232,7 +238,7 @@ def build_subsequent_portrait_prompt(desc: str, style_line: str, portrait_descri
     portrait_prompt = f"""
 
 """
-    return f"{style_line} \n\n This character should always be front facing the camera: {portrait_description} {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
+    return f"{style_line} \n\n Main's character face must be clearly visible to the camera  {portrait_description} {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
 
 def build_subsequent_no_portrait_prompt(desc: str, style_line: str) -> str:
     return f"{style_line} \n  {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
