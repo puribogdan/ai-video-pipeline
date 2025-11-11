@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -91,9 +92,9 @@ class AuphonicAPI:
             
             logger.info(f"Starting Auphonic enhancement for: {input_audio_path}")
             
-            # Step 0: Clean up old productions before starting new one
+            # Step 0: Aggressive cleanup before starting new production
             logger.info("Cleaning up old/unfinished productions...")
-            cleanup_success = self.cleanup_old_productions(max_age_hours=24)
+            cleanup_success = self.cleanup_old_productions(max_age_hours=1)
             if not cleanup_success:
                 logger.warning("Cleanup failed, but proceeding with enhancement...")
             
@@ -109,10 +110,16 @@ class AuphonicAPI:
             success = self._wait_for_completion(production_id)
             if not success:
                 logger.error("Auphonic production failed or timed out")
+                # Clean up failed production
+                self.cleanup_production(production_id)
                 return None
                 
             # Step 3: Download enhanced audio
             enhanced_path = self._download_output(production_id, output_audio_path)
+            
+            # Step 4: Always clean up the production after completion
+            self.cleanup_production(production_id)
+            
             if enhanced_path:
                 logger.info(f"Auphonic enhancement completed: {enhanced_path}")
                 return enhanced_path
@@ -124,7 +131,7 @@ class AuphonicAPI:
             logger.error(f"Auphonic enhancement failed: {e}")
             return None
     
-    def cleanup_old_productions(self, max_age_hours: int = 24) -> bool:
+    def cleanup_old_productions(self, max_age_hours: float = 24) -> bool:
         """
         Clean up old/unfinished Auphonic productions to avoid hitting API limits
         
@@ -176,9 +183,28 @@ class AuphonicAPI:
                         logger.warning(f"Could not parse creation time for production {production.get('uuid', 'unknown')}")
                         continue
                     
-                    # Delete if status is not "done" (2) and production is old
+                    # Delete if status is not "done" and production is old or just non-done
                     # Status codes: 0=Queued, 1=Processing, 2=Done, 3=Error, 4=Starting
-                    if status not in [2, "Done"] and created_dt < cutoff_time:
+                    # Also delete any stuck jobs regardless of age if they're clearly stuck
+                    should_delete = False
+                    
+                    # Always delete clearly stuck/error states regardless of age
+                    if status in [3, "Error", "Timeout", "TimedOut"]:
+                        should_delete = True
+                        logger.info(f"Found stuck error production: {production.get('uuid', 'unknown')} (status: {status})")
+                    
+                    # Delete old non-done jobs (much more aggressive: 1 hour instead of 24)
+                    elif status not in [2, "Done"] and created_dt < cutoff_time:
+                        should_delete = True
+                        age_hours = (datetime.now() - created_dt).total_seconds() / 3600
+                        logger.info(f"Found old incomplete production: {production.get('uuid', 'unknown')} (age: {age_hours:.1f}h, status: {status})")
+                    
+                    # If we have too many jobs, delete some newer ones too
+                    if not should_delete and len([p for p in productions if p.get('status') not in [2, "Done"]]) > 10:
+                        should_delete = True
+                        logger.info(f"Too many active productions, deleting older one: {production.get('uuid', 'unknown')}")
+                    
+                    if should_delete:
                         production_uuid = production.get('uuid')
                         if production_uuid:
                             delete_url = f"{self.base_url}/production/{production_uuid}.json"
@@ -186,7 +212,7 @@ class AuphonicAPI:
                             
                             if delete_response.status_code in [200, 204]:
                                 cleaned_count += 1
-                                logger.info(f"Deleted old production: {production_uuid} (status: {status})")
+                                logger.info(f"Successfully deleted production: {production_uuid} (status: {status})")
                             else:
                                 logger.warning(f"Failed to delete production {production_uuid}: {delete_response.status_code}")
                     
@@ -199,6 +225,35 @@ class AuphonicAPI:
             
         except Exception as e:
             logger.error(f"Failed to cleanup old productions: {e}")
+            return False
+    
+    def cleanup_production(self, production_id: str) -> bool:
+        """
+        Clean up a specific production after it's done (successful or failed).
+        
+        Args:
+            production_id: The UUID of the production to clean up
+            
+        Returns:
+            bool: True if cleanup was successful, False otherwise
+        """
+        try:
+            if not production_id:
+                logger.warning("No production ID provided for cleanup")
+                return True  # Nothing to clean up
+                
+            delete_url = f"{self.base_url}/production/{production_id}.json"
+            delete_response = self.session.delete(delete_url, timeout=30)
+            
+            if delete_response.status_code in [200, 204]:
+                logger.info(f"Successfully cleaned up production: {production_id}")
+                return True
+            else:
+                logger.warning(f"Failed to clean up production {production_id}: {delete_response.status_code}")
+                return False
+                
+        except Exception as e:
+            logger.warning(f"Error cleaning up production {production_id}: {e}")
             return False
 
     def _start_production(self, audio_path: Path) -> Optional[str]:
@@ -249,20 +304,39 @@ class AuphonicAPI:
             else:
                 logger.error(f"Auphonic API error: {response.status_code} - {response.text}")
                 
-                # If we get the "too many unfinished productions" error, try cleanup and retry once
+                # If we get the "too many unfinished productions" error, try cleanup and retry multiple times
                 if response.status_code == 400 and "too many unfinished productions" in response.text.lower():
-                    logger.info("Too many unfinished productions detected, attempting cleanup and retry...")
-                    if self.cleanup_old_productions(max_age_hours=12):  # More aggressive cleanup
-                        logger.info("Retrying production start after cleanup...")
-                        response = self.session.post(url, data=data, files=files, timeout=30)
-                        files["input_file"].close()
+                    logger.info("Too many unfinished productions detected, attempting aggressive cleanup and retry...")
+                    
+                    # Multiple cleanup attempts with increasing aggression
+                    for cleanup_attempt in range(3):
+                        logger.info(f"Cleanup attempt {cleanup_attempt + 1}/3...")
                         
-                        if response.status_code == 200:
-                            result = response.json()
-                            production_id = result.get("data", {}).get("uuid")
-                            if production_id:
-                                logger.info(f"Production created successfully after cleanup: {production_id}")
-                                return production_id
+                        # Try different age thresholds
+                        age_hours = [1, 0.5, 0.1]  # 1 hour, 30 minutes, 6 minutes
+                        if cleanup_attempt < len(age_hours):
+                            cleanup_success = self.cleanup_old_productions(max_age_hours=age_hours[cleanup_attempt])
+                        else:
+                            cleanup_success = self.cleanup_old_productions(max_age_hours=0.05)  # 3 minutes for last attempt
+                        
+                        if cleanup_success:
+                            logger.info(f"Retrying production start after cleanup attempt {cleanup_attempt + 1}...")
+                            
+                            # Re-open the file for retry
+                            files["input_file"] = open(audio_path, "rb")
+                            response = self.session.post(url, data=data, files=files, timeout=30)
+                            files["input_file"].close()
+                            
+                            if response.status_code == 200:
+                                result = response.json()
+                                production_id = result.get("data", {}).get("uuid")
+                                if production_id:
+                                    logger.info(f"Production created successfully after cleanup attempt {cleanup_attempt + 1}: {production_id}")
+                                    return production_id
+                        
+                        if cleanup_attempt < 2:  # Don't sleep on last attempt
+                            logger.info(f"Waiting 5 seconds before next cleanup attempt...")
+                            time.sleep(5)
                 
                 return None
                 
@@ -273,6 +347,10 @@ class AuphonicAPI:
     def _wait_for_completion(self, production_id: str, timeout_seconds: int = 300) -> bool:
         """Wait for Auphonic production to complete"""
         start_time = time.time()
+        unknown_status_count = 0
+        max_unknown_status = 3  # Allow 3 instances of unknown status before timeout
+        
+        logger.info(f"Monitoring Auphonic production {production_id} for completion...")
         
         while time.time() - start_time < timeout_seconds:
             try:
@@ -285,17 +363,55 @@ class AuphonicAPI:
                     result = response.json()
                     status = result.get("data", {}).get("status")
                     
-                    if status == "Done":
-                        logger.info("Auphonic production completed successfully")
+                    # Handle all known successful completion states
+                    if status in ["Done", 2, "Done", 9, "Complete", "Completed"]:
+                        logger.info(f"Auphonic production completed successfully (status: {status})")
                         return True
-                    elif status == "Error":
+                    
+                    # Handle status code 9 specifically (common completion code)
+                    elif status == 9:
+                        logger.info(f"Auphonic production completed with status code 9 (success)")
+                        return True
+                    
+                    # Handle error states
+                    elif status in ["Error", 3]:
                         error_msg = result.get("data", {}).get("status_message", "Unknown error")
                         logger.error(f"Auphonic production failed: {error_msg}")
                         return False
-                    elif status in ["Processing", "Queued", "Starting"]:
+                    
+                    # Handle active processing states
+                    elif status in ["Processing", 1, "Queued", 0, "Starting", 4]:
                         logger.info(f"Auphonic production status: {status}")
+                        unknown_status_count = 0  # Reset counter when we get a known status
+                    
+                    # Handle unknown/unusual statuses (including status 9 variants)
                     else:
-                        logger.warning(f"Unknown Auphonic status: {status}")
+                        unknown_status_count += 1
+                        logger.warning(f"Unknown Auphonic status: {status} (occurrence {unknown_status_count}/{max_unknown_status})")
+                        
+                        # If we get the same unknown status multiple times, check if it's actually completed
+                        if unknown_status_count >= max_unknown_status:
+                            logger.info(f"Status {status} persisted, attempting to download output...")
+                            try:
+                                # Try to download the output - if it works, the job is actually done
+                                test_download = self._download_output(production_id,
+                                    Path(tempfile.gettempdir()) / f"test_download_{production_id}.mp3")
+                                if test_download and test_download.exists():
+                                    logger.info(f"Successfully downloaded output despite status {status} - treating as completed")
+                                    # Clean up the test file
+                                    try:
+                                        test_download.unlink()
+                                    except:
+                                        pass
+                                    return True
+                                else:
+                                    logger.error(f"Could not download output with status {status}")
+                            except Exception as download_error:
+                                logger.error(f"Error testing download for status {status}: {download_error}")
+                            
+                            # If download test failed, this is likely a real stuck job
+                            logger.error(f"Job appears stuck with status {status}")
+                            return False
                 
                 # Wait before next check
                 time.sleep(10)
