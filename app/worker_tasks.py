@@ -1463,7 +1463,7 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
 
             # Record processing stage start
             processing_start = time.time()
-            final_video, detected_language = _run_make_video(job_dir, hint_audio, style)
+            final_video, detected_language = _run_make_video(job_dir, enhanced_audio_path, style)
             processing_time = time.time() - processing_start
 
             # Record audio processing metrics
