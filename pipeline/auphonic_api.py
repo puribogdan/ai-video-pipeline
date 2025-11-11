@@ -133,8 +133,7 @@ class AuphonicAPI:
                 "denoise": "false",
                 "denoiseamount": "100",
                 "silence_cutter": "true",
-                "filler_cutter": "true",
-                "cough_cutter": "true",
+                
                 "action": "start"
             }
             
