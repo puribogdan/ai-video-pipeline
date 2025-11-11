@@ -684,10 +684,23 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tu
     audio_input_dir.mkdir(parents=True, exist_ok=True)
 
     audio_for_pipeline = ensure_mp3(audio_src)
+    
     # Copy to pipeline root as input.mp3 (expected by make_video.py)
-    target_audio = pipe_dir / "input.mp3"
-    shutil.copy2(audio_for_pipeline, target_audio)
-    log(f"Staged audio -> {target_audio} ({target_audio.stat().st_size} bytes)")
+    target_audio_root = pipe_dir / "input.mp3"
+    shutil.copy2(audio_for_pipeline, target_audio_root)
+    log(f"Staged audio to root -> {target_audio_root} ({target_audio_root.stat().st_size} bytes)")
+    
+    # Also copy to audio_input subdirectory (expected by get_subtitles.py and other scripts)
+    audio_input_dir = pipe_dir / "audio_input"
+    audio_input_dir.mkdir(parents=True, exist_ok=True)
+    target_audio_input = audio_input_dir / "input.mp3"
+    shutil.copy2(audio_for_pipeline, target_audio_input)
+    log(f"Staged audio to audio_input -> {target_audio_input} ({target_audio_input.stat().st_size} bytes)")
+    
+    # Log both paths for debugging
+    log(f"Pipeline audio available at both locations:")
+    log(f"  - {target_audio_root} (for make_video.py)")
+    log(f"  - {target_audio_input} (for get_subtitles.py and other scripts)")
 
     env = os.environ.copy()
     for key in REQUIRED_ENV:
