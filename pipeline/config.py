@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     
     # --- Auphonic API configuration ---
     AUPHONIC_API_KEY: Optional[str]      = Field(default=None)
-    AUPHONIC_PRESET: str = Field(default="ceigtvDv8jH6NaK52Z5eXH", description="Auphonic preset ID")
+    AUPHONIC_PRESET: Optional[str] = Field(default=None, description="Auphonic preset UUID (get from https://auphonic.com/presets/)")
     AUPHONIC_ENABLED: bool = Field(default=True, description="Enable Auphonic audio enhancement")
 
     # --- Defaults for your pipeline (you can override in .env if you want) ---

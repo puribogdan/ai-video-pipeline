@@ -57,10 +57,12 @@ AUPHONIC_PRESET=ceigtvDv8jH6NaK52Z5eXH
   - Get from: https://auphonic.com/accounts/password/
   - Required for enhancement functionality
 
-- **`AUPHONIC_PRESET`** (string, default: "ceigtvDv8jH6NaK52Z5eXH")
-  - Auphonic processing preset ID
+- **`AUPHONIC_PRESET`** (string, optional)
+  - Auphonic processing preset UUID
+  - Get from: https://auphonic.com/presets/
+  - If not configured, uses Auphonic's default enhancement settings
   - Controls audio enhancement parameters
-  - Default preset provides good general-purpose enhancement
+  - Optional - system works with default settings
 
 ## API Integration Details
 

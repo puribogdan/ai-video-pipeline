@@ -122,22 +122,28 @@ class AuphonicAPI:
         try:
             url = f"{self.base_url}/simple/productions.json"
             
-            # Prepare form data
+            # Prepare form data - use default settings if no preset configured
             data = {
-                "preset": self.preset,
                 "title": f"Audio Enhancement - {audio_path.stem}",
                 "filtering": "true",
                 "leveler": "false",
                 "normloudness": "true",
-                "loudnesstarget": "-24",
-                "maxpeak": "-2",
-                "denoise": "false",
-                "denoiseamount": "100",
+                "loudnesstarget": "-23",
+                "maxpeak": "-1",
+                "denoise": "true",
+                "denoiseamount": "80",
                 "silence_cutter": "true",
                 "filler_cutter": "true",
                 "cough_cutter": "true",
                 "action": "start"
             }
+            
+            # Add preset only if configured
+            if self.preset:
+                data["preset"] = self.preset
+                logger.info(f"Using Auphonic preset: {self.preset}")
+            else:
+                logger.info("Using default Auphonic settings (no preset configured)")
             
             # Prepare files
             files = {
