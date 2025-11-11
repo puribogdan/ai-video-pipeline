@@ -1,25 +1,21 @@
 # make_video.py
-# Orchestrates the full pipeline end-to-end using fixed audio paths under ./audio_input:
-#   audio_input/input.mp3  -> (optional trim) -> audio_input/input_trimmed.mp3
-#   IMPORTANT: We do NOT replace input.mp3. We keep both files and use input_trimmed.mp3 if present.
+# Orchestrates the full pipeline end-to-end using audio from environment or default location:
+#   Audio input provided via AUDIO_INPUT_FILE env var or uses input.mp3 in root
 #
 # Steps:
-#   0) trim_silence.py                 -> audio_input/input_trimmed.mp3
-#   1) get_subtitles.py                -> subtitles/input_subtitles.json
-#   2) generate_script.py              -> scripts/input_script.json
-#   3) generate_images_flux_schnell.py -> scenes/scene_*.png
-#   4) generate_video_chunks_seedance.py -> video_chunks/chunk_*.mp4
-#   5) merge_and_add_audio.py          -> final_video.mp4
+#   0) get_subtitles.py                -> subtitles/input_subtitles.json
+#   1) generate_script.py              -> scripts/input_script.json
+#   2) generate_images_flux_schnell.py -> scenes/scene_*.png
+#   3) generate_video_chunks_seedance.py -> video_chunks/chunk_*.mp4
+#   4) merge_and_add_audio.py          -> final_video.mp4
 #
 # Usage:
 #   python make_video.py
-#   python make_video.py --trim-args "--target_silence_ms 800 --keep_head_ms 600 --min_silence_ms 700"
 #   python make_video.py --stop-after-images  # Stop after image generation (for testing)
 #
 # Notes:
 # - Expects to run from the same folder where the pipeline scripts live.
-# - Works primarily with ./audio_input/input.mp3; if trimming runs, we set AUDIO_INPUT_FILE to input_trimmed.mp3
-#   and keep input.mp3 intact.
+# - Audio processing is now handled by external APIs, not local processing.
 # - Checks for required env vars (OpenAI, Replicate). Exits early if missing.
 # - Prints a JSON summary on success; exits non-zero on failure.
 
@@ -46,9 +42,9 @@ load_dotenv()
 # ---------- Paths & constants ----------
 ROOT = Path(__file__).resolve().parent
 
-AUDIO_DIR = ROOT / "audio_input"
-PIPELINE_AUDIO = AUDIO_DIR / "input.mp3"
-TRIMMED_AUDIO = AUDIO_DIR / "input_trimmed.mp3"
+# Audio file location - can be set via AUDIO_INPUT_FILE env var or use input.mp3
+AUDIO_INPUT_FILE = os.environ.get("AUDIO_INPUT_FILE", ROOT / "input.mp3")
+PIPELINE_AUDIO = Path(AUDIO_INPUT_FILE)
 
 SUBS_FILE = ROOT / "subtitles" / "input_subtitles.json"
 SCRIPT_FILE = ROOT / "scripts" / "input_script.json"
@@ -124,15 +120,12 @@ def ensure_env() -> None:
 
 # ---------- Main ----------
 def main():
-    ap = argparse.ArgumentParser(description="End-to-end video generation orchestrator (keeps input.mp3 intact).")
+    ap = argparse.ArgumentParser(description="End-to-end video generation orchestrator (no local audio processing).")
     ap.add_argument("--job-id", default=None, help="Optional job id for logs/metadata.")
     ap.add_argument("--limit-scenes", type=int, default=None, help="Optional cap for scenes (dev/testing).")
     ap.add_argument("--resolution", default="480p", help="Seedance resolution: 540p, 720p, 1080p.")
     ap.add_argument("--fps", type=int, default=24, help="Output FPS.")
     ap.add_argument("--force", action="store_true", help="Force downstream scripts to overwrite outputs where supported.")
-    # Silence trimming
-    ap.add_argument("--skip-trim", action="store_true", help="Skip trim_silence.py.")
-    ap.add_argument("--trim-args", default="", help="Extra args passed to trim_silence.py.")
     # Optional skips
     ap.add_argument("--skip-subtitles", action="store_true")
     ap.add_argument("--skip-images", action="store_true")
@@ -144,7 +137,6 @@ def main():
     ensure_env()
 
     # Ensure folders
-    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     (ROOT / "subtitles").mkdir(parents=True, exist_ok=True)
     (ROOT / "scripts").mkdir(parents=True, exist_ok=True)
     SCENES_DIR.mkdir(parents=True, exist_ok=True)
@@ -156,44 +148,13 @@ def main():
     job_id = args.job_id or f"job_{int(time.time())}"
     log(f"Starting make_video for job_id={job_id}")
 
-    # 0) Trim silence
-    trim_script = ROOT / "trim_silence.py"
-    if not args.skip_trim:
-        if trim_script.exists():
-            log("Trimming silence …")
-            argv = [
-                sys.executable,
-                str(trim_script),
-                "--input", str(PIPELINE_AUDIO),
-                "--output", str(TRIMMED_AUDIO),
-            ]
-            if args.trim_args.strip():
-                import shlex
-                argv += shlex.split(args.trim_args.strip())
-
-            extra = os.getenv("TRIM_EXTRA_ARGS", "").strip()
-            if extra:
-                import shlex
-                argv += shlex.split(extra)
-
-            run_args(argv, cwd=ROOT)
-        else:
-            log("trim_silence.py not found, skipping trimming step.")
-    else:
-        log("Skipping trim_silence.py (flag set).")
-
-    # choose audio
-    if TRIMMED_AUDIO.exists() and TRIMMED_AUDIO.stat().st_size > 0:
-        audio_for_pipeline = TRIMMED_AUDIO
-        log(f"Using trimmed audio: {audio_for_pipeline}")
-    else:
-        audio_for_pipeline = PIPELINE_AUDIO
-        log(f"Using original audio: {audio_for_pipeline}")
+    # Use audio from environment or default location (no local processing)
+    audio_for_pipeline = PIPELINE_AUDIO
+    log(f"Using audio (processed via external API): {audio_for_pipeline}")
 
     # environment for children
     child_env = {
         "AUDIO_INPUT_FILE": str(audio_for_pipeline),
-        "AUDIO_INPUT_DIR": str(AUDIO_DIR),
     }
 
     # 1) Subtitles
@@ -293,8 +254,6 @@ def main():
             "resolution": args.resolution,
             "fps": args.fps,
             "limit_scenes": args.limit_scenes,
-            "trim_applied": trim_script.exists() and not args.skip_trim,
-            "trim_args": args.trim_args,
             "stopped_after": "image_generation",
         }
         print(json.dumps(meta, indent=2))
@@ -317,8 +276,6 @@ def main():
             "resolution": args.resolution,
             "fps": args.fps,
             "limit_scenes": args.limit_scenes,
-            "trim_applied": trim_script.exists() and not args.skip_trim,
-            "trim_args": args.trim_args,
             "stage": "full_pipeline_completed",
         }
         print(json.dumps(meta, indent=2))

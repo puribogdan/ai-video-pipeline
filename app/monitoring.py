@@ -137,7 +137,7 @@ class MetricsCollector:
         self.request_count = Counter('pipeline_requests_total', 'Total requests', ['endpoint', 'method', 'status'], registry=self._registry)
         self.request_duration = Histogram('pipeline_request_duration_seconds', 'Request duration', ['endpoint'], registry=self._registry)
         self.active_jobs = Gauge('pipeline_active_jobs', 'Number of active jobs', registry=self._registry)
-        self.audio_processing_time = Histogram('pipeline_audio_processing_seconds', 'Audio processing time', ['stage'], registry=self._registry)
+        
         self.error_count = Counter('pipeline_errors_total', 'Total errors', ['type', 'component'], registry=self._registry)
         self.cache_hit_rate = Gauge('pipeline_cache_hit_rate', 'Cache hit rate', registry=self._registry)
         self.system_cpu_usage = Gauge('pipeline_system_cpu_percent', 'System CPU usage', registry=self._registry)
@@ -758,23 +758,18 @@ class AudioPipelineMonitor:
                 if job_id in self.job_metrics:
                     del self.job_metrics[job_id]
 
-    def record_audio_processing_metrics(self, job_id: str, file_size: int, processing_time: float,
+    def record_video_processing_metrics(self, job_id: str, file_size: int, processing_time: float,
                                       success: bool, format_info: Optional[Dict[str, Any]] = None):
-        """Record audio processing specific metrics"""
+        """Record video processing specific metrics"""
         labels = {"success": str(success)}
 
-        self.metrics.record_histogram("audio_processing_time", processing_time, labels)
-        self.metrics.record_histogram("audio_file_size", file_size, labels)
-
-        if format_info:
-            self.metrics.set_gauge("audio_sample_rate", format_info.get('sample_rate', 0), labels)
-            self.metrics.set_gauge("audio_duration", format_info.get('duration', 0), labels)
-            self.metrics.set_gauge("audio_channels", format_info.get('channels', 0), labels)
+        self.metrics.record_histogram("video_processing_time", processing_time, labels)
+        self.metrics.record_histogram("video_file_size", file_size, labels)
 
         if success:
-            self.metrics.increment_counter("audio_processing_success_total")
+            self.metrics.increment_counter("video_processing_success_total")
         else:
-            self.metrics.increment_counter("audio_processing_failure_total")
+            self.metrics.increment_counter("video_processing_failure_total")
 
     def record_cache_metrics(self, operation: str, hit: bool, response_time: float):
         """Record cache operation metrics"""

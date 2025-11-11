@@ -1,7 +1,6 @@
 imageio-ffmpeg==0.4.9
 pydantic>=2.6
 pydantic-settings>=2.2
-pydub==0.25.1
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 python-multipart==0.0.9
@@ -17,16 +16,6 @@ tenacity==8.5.0
 Pillow==10.4.0
 moviepy==1.0.3
 requests>=2.32.0
-pydub
-numpy
-scipy
-librosa
-soundfile
-noisereduce
-pyloudnorm
-# VAD
-webrtcvad-wheels; platform_system == "Windows"
-webrtcvad; platform_system != "Windows"
 boto3==1.35.16
 tenacity==8.5.0
 rembg==2.0.67

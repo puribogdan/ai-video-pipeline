@@ -28,6 +28,9 @@ load_dotenv()
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SRC = APP_ROOT / "pipeline"
+# Import settings for Auphonic configuration
+sys.path.append(str(PIPELINE_SRC))
+from config import settings
 MEDIA_DIR = APP_ROOT / "media"
 
 # Enhanced debugging for uploads directory configuration (Render server compatible)
@@ -1626,6 +1629,37 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
                 log(f"[INFO] Using alternative audio file: {hint_audio} ({audio_size} bytes)")
             else:
                 raise RuntimeError(f"Audio file validation failed and no alternative found: {e}")
+        # Enhance audio using Auphonic API if enabled
+        enhanced_audio_path = hint_audio
+        if settings.AUPHONIC_ENABLED and settings.AUPHONIC_API_KEY:
+            try:
+                log(f"[INFO] Starting Auphonic audio enhancement for: {hint_audio}")
+                from pathlib import Path as PathLib
+                
+                # Import the Auphonic client
+                sys.path.insert(0, str(PIPELINE_SRC))
+                from auphonic_api import AuphonicAPI
+                
+                # Enhance the audio
+                auphonic_client = AuphonicAPI()
+                enhanced_path = auphonic_client.enhance_audio(hint_audio)
+                
+                if enhanced_path and enhanced_path.exists():
+                    log(f"[INFO] Auphonic enhancement successful: {enhanced_path}")
+                    enhanced_audio_path = enhanced_path
+                    # Update the monitoring with enhanced file size
+                    audio_size = enhanced_audio_path.stat().st_size
+                    log(f"[INFO] Enhanced audio file size: {audio_size} bytes")
+                else:
+                    log(f"[WARNING] Auphonic enhancement failed, using original audio")
+                    enhanced_audio_path = hint_audio
+                    
+            except Exception as e:
+                log(f"[WARNING] Auphonic enhancement failed: {e}")
+                log(f"[WARNING] Using original audio file: {hint_audio}")
+                enhanced_audio_path = hint_audio
+        else:
+            log(f"[INFO] Auphonic enhancement disabled, using original audio")
 
         # Run the main video processing pipeline
         try:
@@ -1644,7 +1678,7 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
             # Record audio processing metrics
             if hint_audio:
                 audio_size = hint_audio.stat().st_size
-                monitor.record_audio_processing_metrics(job_id, audio_size, processing_time, True)
+                monitor.record_video_processing_metrics(job_id, audio_size, processing_time, True)
 
             # Record job stage completion
             monitor.record_job_stage(job_id, "video_processing", processing_time, {"style": style})
@@ -1664,7 +1698,7 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
             # Record failed processing metrics
             if hint_audio:
                 audio_size = hint_audio.stat().st_size
-                monitor.record_audio_processing_metrics(job_id, audio_size, 0, False)
+                monitor.record_video_processing_metrics(job_id, audio_size, 0, False)
 
             monitor.complete_job_tracking(job_id, "failed", str(e))
             raise RuntimeError(f"Video processing failed: {e}")

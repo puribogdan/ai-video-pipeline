@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     CLAUDE_API_KEY: Optional[str]        = Field(default=None)
     REPLICATE_API_TOKEN: Optional[str]   = Field(default=None)
     LUMAAI_API_KEY: Optional[str]        = Field(default=None)
+    
+    # --- Auphonic API configuration ---
+    AUPHONIC_API_KEY: Optional[str]      = Field(default=None)
+    AUPHONIC_PRESET: str = Field(default="ceigtvDv8jH6NaK52Z5eXH", description="Auphonic preset ID")
+    AUPHONIC_ENABLED: bool = Field(default=True, description="Enable Auphonic audio enhancement")
 
     # --- Defaults for your pipeline (you can override in .env if you want) ---
     IMAGE_PROVIDER: str = Field(default="replicate:flux-schnell")
