@@ -631,46 +631,52 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tu
             log(f"[DEBUG] Hint audio size: {hint_audio.stat().st_size} bytes")
             log(f"[DEBUG] Hint audio mime type: {mimetypes.guess_type(str(hint_audio))}")
 
-    # Use event-driven audio detection instead of polling
-    try:
-        # Try to use existing event loop first
+    # Use the provided audio file (enhanced if available, original as fallback)
+    if hint_audio and hint_audio.exists():
+        audio_src = hint_audio
+        log(f"[INFO] Using provided audio file: {audio_src} ({audio_src.stat().st_size} bytes)")
+    else:
+        log(f"[WARNING] No audio file provided or file not found, attempting auto-detection")
+        # Fallback to event-driven audio detection if no hint provided
         try:
-            loop = asyncio.get_running_loop()
-            # We're in an async context, create task instead of using run_until_complete
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(_run_async_audio_detection, job_id=job_dir.name, hint_path=hint_audio)
-                audio_src = future.result(timeout=180.0)  # 3 minute timeout
-        except RuntimeError:
-            # No event loop running, create new one (for backward compatibility)
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # Try to use existing event loop first
             try:
-                audio_src = loop.run_until_complete(
-                    _wait_for_audio_event_driven(job_id=job_dir.name, hint_path=hint_audio)
-                )
-            finally:
-                loop.close()
+                loop = asyncio.get_running_loop()
+                # We're in an async context, create task instead of using run_until_complete
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(_run_async_audio_detection, job_id=job_dir.name, hint_path=hint_audio)
+                    audio_src = future.result(timeout=180.0)  # 3 minute timeout
+            except RuntimeError:
+                # No event loop running, create new one (for backward compatibility)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    audio_src = loop.run_until_complete(
+                        _wait_for_audio_event_driven(job_id=job_dir.name, hint_path=hint_audio)
+                    )
+                finally:
+                    loop.close()
 
-        log(f"[INFO] Event-driven audio detection successful: {audio_src}")
-    except Exception as e:
-        log(f"[WARNING] Event-driven audio detection failed: {e}")
-        log(f"[WARNING] This may be due to event loop conflicts in RQ worker environment")
-        log(f"[INFO] Falling back to polling-based detection for backward compatibility")
-        try:
-            # Fallback to original polling method for backward compatibility
-            audio_src = _wait_for_any_audio(job_id=job_dir.name, hint_path=hint_audio)
-            log(f"[INFO] Polling fallback successful: {audio_src}")
-        except Exception as polling_error:
-            log(f"[ERROR] Both event-driven and polling detection failed: {polling_error}")
-            log(f"[ERROR] Event-driven error: {e}")
-            # Try one more time with a simpler approach
+            log(f"[INFO] Event-driven audio detection successful: {audio_src}")
+        except Exception as e:
+            log(f"[WARNING] Event-driven audio detection failed: {e}")
+            log(f"[WARNING] This may be due to event loop conflicts in RQ worker environment")
+            log(f"[INFO] Falling back to polling-based detection for backward compatibility")
             try:
-                audio_src = _wait_for_any_audio_sync(job_id=job_dir.name, hint_path=hint_audio, timeout_s=60.0)
-                log(f"[INFO] Synchronous fallback successful: {audio_src}")
-            except Exception as sync_error:
-                log(f"[CRITICAL] All audio detection methods failed for job {job_dir.name}")
-                raise RuntimeError(f"All audio detection methods failed. Event-driven: {e}, Polling: {polling_error}, Sync: {sync_error}")
+                # Fallback to original polling method for backward compatibility
+                audio_src = _wait_for_any_audio(job_id=job_dir.name, hint_path=hint_audio)
+                log(f"[INFO] Polling fallback successful: {audio_src}")
+            except Exception as polling_error:
+                log(f"[ERROR] Both event-driven and polling detection failed: {polling_error}")
+                log(f"[ERROR] Event-driven error: {e}")
+                # Try one more time with a simpler approach
+                try:
+                    audio_src = _wait_for_any_audio_sync(job_id=job_dir.name, hint_path=hint_audio, timeout_s=60.0)
+                    log(f"[INFO] Synchronous fallback successful: {audio_src}")
+                except Exception as sync_error:
+                    log(f"[CRITICAL] All audio detection methods failed for job {job_dir.name}")
+                    raise RuntimeError(f"All audio detection methods failed. Event-driven: {e}, Polling: {polling_error}, Sync: {sync_error}")
 
     _copy_pipeline_to(job_dir)
     pipe_dir = job_dir / "pipeline"
