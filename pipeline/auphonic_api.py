@@ -3,13 +3,16 @@
 Auphonic API Integration Module - Documentation-Based Implementation
 """
 
+import os
 import logging
 import time
 from pathlib import Path
 from typing import Optional
 import requests
+from dotenv import load_dotenv
 
-from pipeline.config import settings
+# Load environment variables from .env file
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +40,26 @@ class AuphonicAPI:
         15: "Production Changed"
     }
     
-    def __init__(self):
-        self.api_key = settings.AUPHONIC_API_KEY
-        self.enabled = settings.AUPHONIC_ENABLED
+    def __init__(self, api_key: Optional[str] = None):
+        # Load from parameter, environment, or config
+        self.api_key = api_key or os.getenv('AUPHONIC_API_KEY')
+        
+        # Check if Auphonic is enabled
+        enabled_str = os.getenv('AUPHONIC_ENABLED', 'false').lower()
+        self.enabled = enabled_str in ['true', '1', 'yes', 'on']
+        
         self.base_url = "https://auphonic.com/api"
         
-        if not self.enabled or not self.api_key:
-            logger.info("Auphonic API is disabled or not configured")
+        if not self.enabled:
+            logger.info("Auphonic API is disabled (AUPHONIC_ENABLED=false)")
+            return
+            
+        if not self.api_key:
+            logger.warning("AUPHONIC_API_KEY not found in environment")
             self.enabled = False
+            return
+        
+        logger.info("Auphonic API client initialized")
     
     def enhance_audio(self, input_audio_path: Path, output_audio_path: Optional[Path] = None) -> Optional[Path]:
         """
@@ -332,16 +347,27 @@ def enhance_audio_with_auphonic(input_audio_path: Path, output_audio_path: Optio
 if __name__ == "__main__":
     import sys
     
+    # Setup logging for CLI usage
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
     if len(sys.argv) < 2:
         print("Usage: python auphonic_api.py <input_audio_file> [output_audio_file]")
+        print("\nMake sure AUPHONIC_API_KEY is set in your .env file")
         sys.exit(1)
     
     input_file = Path(sys.argv[1])
     output_file = Path(sys.argv[2]) if len(sys.argv) > 2 else None
     
+    if not input_file.exists():
+        print(f"❌ Input file not found: {input_file}")
+        sys.exit(1)
+    
     enhanced = enhance_audio_with_auphonic(input_file, output_file)
     if enhanced:
-        print(f"✅ Enhanced: {enhanced}")
+        print(f"✅ Enhanced audio saved: {enhanced}")
     else:
         print("❌ Enhancement failed")
         sys.exit(1)
