@@ -95,13 +95,13 @@ DEFAULT_STYLE_KEY = "kid_friendly_cartoon"  # fallback if env not set
 
 # -------------------- Camera Angle Variation Prompt --------------------
 CAMERA_ANGLE_PROMPT = """
-Use different camera distances, angles, and framings to create visual interest while keeping her face visible:
-- Distance: close-up, medium shot, wide shot, extreme close-up (face focus)
-- Angles: eye-level, slight low angle, slight high angle, dutch angle (tilted), three-quarter view
-- Framing: centered, rule of thirds, leading lines, foreground framing
-- Perspective: straight-on, 3/4 angle (face turned slightly but still visible)
+Add variation:
+Choose ONE camera approach for this image from the following options to create visual variety across the sequence:
+- Camera distance: close-up, medium shot, wide shot, or extreme close-up on her face
+- Camera angle: eye-level, slight low angle, slight high angle, dutch tilt, or three-quarter view
+- Framing style: centered composition, rule of thirds placement, or foreground elements for depth
 
-Avoid: extreme low/high angles, back views, profile-only shots, or any framing that would obscure her face."""
+Keep her face clearly visible and avoid extreme angles, back views, or obscured faces"""
 
 # -------------------- Helpers --------------------
 def load_scenes() -> List[Dict[str, Any]]:
