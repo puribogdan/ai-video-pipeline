@@ -99,7 +99,7 @@ async def submit(
     email: str = Form(...),
     audio: UploadFile = File(...),
     portrait: UploadFile | None = File(default=None),
-    style: str = Form("kid"),
+    style: str = Form("kid_friendly_cartoon"),
 ):
     # validate style
     style = (style or "kid").lower().strip()
