@@ -207,14 +207,22 @@ def build_first_image_prompt(desc: str, style_line: str, has_portrait: bool) -> 
         portrait_prompt = """
 
 
-CHARACTER INTEGRATION:
-Always include the character from the referance image into the scene
-Preserve for recognition: Overall facial proportions, key distinguishing features (eye shape, nose, mouth structure), hair color and general style, skin tone, clothes
-Transform to match style: Reinterpret all features using the style's artistic language—stylized eyes, simplified or exaggerated proportions where the style demands it, linework and shading techniques, color saturation and treatment
-The character should be recognizable as the reference person, but look like they were illustrated/created using this style's methods, not like a photo with a filter applied
-Fully integrate them into the scene's visual cohesion—same level of stylization, lighting approach, and artistic treatment as all other elements
+CHARACTER INTEGRATION: 
+Reimagine the reference character as a native part of this scene, not a filtered photo.
 
-The goal is recognizable identity within full stylistic integration for new characters, and complete preservation for existing ones.
+Keep recognizable: 
+- General facial structure and proportions
+- Key features (eye color, hair color/length, skin tone)
+- Overall essence and recognizability
+
+Transform completely:
+- Reinterpret all features using the art style's visual language
+- Adjust proportions to match the style's conventions
+- Apply consistent lighting, shading, and linework with the scene
+- Integrate naturally with the same artistic treatment as other elements
+- Match the scene's emotional tone and action
+
+Goal: Recognizable as the reference person, but designed as a native character in this art style. Prioritize scene integration over photographic accuracy.
 """
         return f"{style_line} \n{portrait_prompt}\nSCENE BRIEF: {desc}"
     else:

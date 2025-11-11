@@ -345,6 +345,7 @@ Output JSON:
 Remember: 
 - Keep start_time, end_time, duration, narration EXACTLY as provided
 - ONLY fill in scene_description field
+- Always use English language to fill in scene_description
 - Use IDENTICAL character descriptions across all scenes
 """
     else:
@@ -421,6 +422,7 @@ Output JSON:
 Remember: 
 - Keep start_time, end_time, duration, narration EXACTLY as provided
 - ONLY fill in scene_description field
+- Always use English language to fill in scene_description
 - Use IDENTICAL character descriptions across all scenes
 
 """
