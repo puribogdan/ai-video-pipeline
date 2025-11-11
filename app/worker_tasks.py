@@ -684,7 +684,8 @@ def _run_make_video(job_dir: Path, hint_audio: Optional[Path], style: str) -> tu
     audio_input_dir.mkdir(parents=True, exist_ok=True)
 
     audio_for_pipeline = ensure_mp3(audio_src)
-    target_audio = audio_input_dir / "input.mp3"
+    # Copy to pipeline root as input.mp3 (expected by make_video.py)
+    target_audio = pipe_dir / "input.mp3"
     shutil.copy2(audio_for_pipeline, target_audio)
     log(f"Staged audio -> {target_audio} ({target_audio.stat().st_size} bytes)")
 
