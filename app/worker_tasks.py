@@ -30,7 +30,7 @@ APP_ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_SRC = APP_ROOT / "pipeline"
 # Import settings for Auphonic configuration
 sys.path.append(str(PIPELINE_SRC))
-from config import settings
+from pipeline.config import settings
 MEDIA_DIR = APP_ROOT / "media"
 
 # Enhanced debugging for uploads directory configuration (Render server compatible)
@@ -983,7 +983,8 @@ def upload_to_b2(job_id: str, video_path: Path, job_dir: Optional[Path] = None, 
 
         # Return URLs as dictionary
         urls = {"video_url": video_url}
-        if vtt_local_path and vtt_local_path.exists():
+        vtt_url = locals().get('vtt_url')  # Get vtt_url from the local scope if it exists
+        if vtt_local_path and vtt_local_path.exists() and vtt_url:
             urls["vtt_url"] = vtt_url
         return urls
 
@@ -1372,263 +1373,13 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
             
             return {"status": "done", "video_url": video_url}
 
-        # Create job directory
-        job_dir = UPLOADS_DIR / job_id
-        try:
-            job_dir.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            log(f"[ERROR] Failed to create job directory {job_dir}: {e}")
-            raise RuntimeError(f"Failed to create job directory: {e}")
-
-        # Use the verified audio file path
+        # Use the verified audio file path from the initial verification loop
         hint_audio = final_audio_path
-        log(f"[DEBUG] Using verified audio file: {hint_audio}")
-        log(f"[DEBUG] Audio file exists: {hint_audio.exists() if hint_audio else 'N/A'}")
-        log(f"[DEBUG] Audio file size: {hint_audio.stat().st_size if hint_audio else 'N/A'} bytes")
-
-        # Enhanced debugging for the selected audio file
+        log(f"[INFO] Using verified audio file: {hint_audio}")
         if hint_audio:
-            log(f"[DEBUG] Selected audio filename: {hint_audio.name}")
-            log(f"[DEBUG] Selected audio extension: {hint_audio.suffix}")
-            log(f"[DEBUG] Selected audio path absolute: {hint_audio.absolute()}")
-            log(f"[DEBUG] Selected audio path parent: {hint_audio.parent}")
-            log(f"[DEBUG] Selected audio path parent exists: {hint_audio.parent.exists()}")
-
-        # System now accepts any audio filename - no hardcoded expectations
-        log(f"[INFO] System configured to accept any audio filename for maximum flexibility")
-
-        initial_listing = sorted([p.name for p in job_dir.iterdir()]) if job_dir.exists() else []
-        log(f"[DEBUG] Job dir initial listing: {initial_listing}")
-
-        # Check if completion_status.json exists without audio files (potential race condition)
-        if "completion_status.json" in initial_listing and not any(f.endswith(('.mp3', '.wav', '.m4a', '.aac', '.ogg')) for f in initial_listing):
-            log(f"[WARNING] Found completion_status.json but no audio files - possible premature status save")
-            log(f"[DEBUG] completion_status.json size: {Path(job_dir / 'completion_status.json').stat().st_size if (job_dir / 'completion_status.json').exists() else 'N/A'}")
-            log(f"[DEBUG] completion_status.json modification time: {(job_dir / 'completion_status.json').stat().st_mtime if (job_dir / 'completion_status.json').exists() else 'N/A'}")
-
-        # Enhanced: Always look for any audio file in the job directory first (most robust approach)
-        # This makes the system flexible and accepts any audio filename, not just specific ones
-        log(f"[INFO] System prioritizes finding any audio file in job directory for maximum compatibility")
-        log(f"[DEBUG] Looking for any audio file in job directory...")
-        found_audio = _find_any_audio(job_dir)
-
-        if found_audio:
-            log(f"[INFO] Found audio file in job directory: {found_audio.name}")
-            log(f"[DEBUG] Found audio file size: {found_audio.stat().st_size} bytes")
-            log(f"[DEBUG] Found audio file mime type: {mimetypes.guess_type(str(found_audio))}")
-            log(f"[DEBUG] Found audio file path: {found_audio.absolute()}")
-            hint_audio = found_audio
-        elif hint_audio and hint_audio.exists():
-            log(f"[INFO] Using provided hint audio path: {hint_audio}")
-            log(f"[DEBUG] Hint audio size: {hint_audio.stat().st_size} bytes")
-            log(f"[DEBUG] Hint audio mime type: {mimetypes.guess_type(str(hint_audio))}")
-        else:
-            log(f"[WARNING] No audio file found via directory scan or hint path")
-            log(f"[DEBUG] Upload path details: {upload_path}")
-            log(f"[DEBUG] Upload path exists: {Path(upload_path).exists() if upload_path else 'N/A'}")
-            log(f"[DEBUG] Upload path parent: {Path(upload_path).parent if upload_path else 'N/A'}")
-            log(f"[DEBUG] Upload path parent exists: {Path(upload_path).parent.exists() if upload_path else 'N/A'}")
-
-            # Final attempt: try to find any audio file again (in case of timing issues)
-            found_audio = _find_any_audio(job_dir)
-            if found_audio:
-                log(f"[INFO] Found audio file on second attempt: {found_audio}")
-                hint_audio = found_audio
-            else:
-                # No audio file found - implement robust retry logic for race condition
-                # Enhanced for multiple simultaneous jobs
-                max_retries = 8  # Increased retries for better race condition handling
-                base_wait_time = 2  # Reduced base wait time for faster initial retries
-
-                for attempt in range(max_retries):
-                    # Use exponential backoff with jitter for multiple jobs
-                    import random
-                    base_wait = base_wait_time * (2 ** attempt)
-                    jitter = random.uniform(0.5, 1.5)  # Add jitter to prevent thundering herd
-                    wait_time = base_wait * jitter
-
-                    log(f"[WARNING] No audio file found, waiting {wait_time:.1f} seconds and retrying (attempt {attempt + 1}/{max_retries})...")
-                    log(f"[DEBUG] Job directory before wait: {job_dir}")
-                    log(f"[DEBUG] Job directory exists: {job_dir.exists()}")
-
-                    if job_dir.exists():
-                        log(f"[DEBUG] Job directory permissions: {oct(job_dir.stat().st_mode)}")
-                        try:
-                            contents_before = [p.name for p in job_dir.iterdir()]
-                            log(f"[DEBUG] Job directory contents before wait: {contents_before}")
-
-                            # Enhanced debugging for file type detection
-                            for file_path in job_dir.iterdir():
-                                if file_path.is_file():
-                                    try:
-                                        size = file_path.stat().st_size
-                                        mtime = file_path.stat().st_mtime
-                                        mime_type, _ = mimetypes.guess_type(str(file_path))
-                                        log(f"[DEBUG] File analysis - {file_path.name}: size={size}, mtime={mtime}, mime={mime_type}")
-                                    except Exception as e:
-                                        log(f"[DEBUG] Error analyzing file {file_path.name}: {e}")
-
-                            # Check if upload path exists and monitor its size (but don't rely on it)
-                                if upload_path:
-                                    upload_path_obj = Path(upload_path)
-                                    log(f"[DEBUG] Upload path object: {upload_path_obj}")
-                                    log(f"[DEBUG] Upload path absolute: {upload_path_obj.absolute()}")
-                                    if upload_path_obj.exists():
-                                        size_before = upload_path_obj.stat().st_size
-                                        mtime_before = upload_path_obj.stat().st_mtime
-                                        log(f"[DEBUG] Upload path exists, size before wait: {size_before} bytes, mtime: {mtime_before}")
-                                        mime_type, _ = mimetypes.guess_type(str(upload_path_obj))
-                                        log(f"[DEBUG] Upload path mime type: {mime_type}")
-                                    else:
-                                        log(f"[DEBUG] Upload path does not exist - will rely on finding any audio file in job directory")
-                        except Exception as e:
-                            log(f"[DEBUG] Error checking directory contents: {e}")
-
-                    time.sleep(wait_time)
-
-                    # Check again after waiting
-                    log(f"[DEBUG] Checking for audio files after wait...")
-                    found_audio = _find_any_audio(job_dir)
-
-                    if found_audio:
-                        # Validate file is not still being written (check size stability)
-                        try:
-                            size1 = found_audio.stat().st_size
-                            time.sleep(2)  # Wait 2 seconds for better stability
-                            size2 = found_audio.stat().st_size
-
-                            if size1 == size2 and size1 > 0:
-                                log(f"[INFO] Found stable audio file after {attempt + 1} attempts: {found_audio}")
-                                log(f"[DEBUG] Audio file size: {size1} bytes (stable)")
-                                log(f"[DEBUG] Audio file mime type: {mimetypes.guess_type(str(found_audio))}")
-                                log(f"[DEBUG] Audio file absolute path: {found_audio.absolute()}")
-                                hint_audio = found_audio
-                                break
-                            else:
-                                log(f"[WARNING] Audio file size changed during check ({size1} -> {size2}), still being written...")
-                                if attempt == max_retries - 1:  # Last attempt
-                                    log(f"[INFO] Using file despite size change (last attempt): {found_audio}")
-                                    log(f"[DEBUG] Final file size: {size2} bytes")
-                                    hint_audio = found_audio
-                                    break
-                        except Exception as e:
-                            log(f"[DEBUG] Error checking file stability: {e}")
-                            if attempt == max_retries - 1:  # Last attempt
-                                log(f"[INFO] Using found audio file (last attempt): {found_audio}")
-                                hint_audio = found_audio
-                                break
-                    else:
-                        log(f"[DEBUG] Still no audio file found after attempt {attempt + 1}")
-
-                        # On last attempt, check if upload path exists (but prefer any audio file found)
-                        if attempt == max_retries - 1 and upload_path:
-                            upload_path_obj = Path(upload_path)
-                            if upload_path_obj.exists():
-                                log(f"[DEBUG] Upload path exists on final attempt: {upload_path_obj}")
-                                log(f"[DEBUG] Upload path size: {upload_path_obj.stat().st_size} bytes")
-                                if upload_path_obj.stat().st_size > 0:
-                                    log(f"[INFO] Using upload path as audio file: {upload_path_obj}")
-                                    hint_audio = upload_path_obj
-                                    break
-                    # Enhanced debugging for final attempt
-                    available_files = [p.name for p in job_dir.iterdir()] if job_dir.exists() else []
-                    log(f"[ERROR] Audio file still not found after retry.")
-                    log(f"[DEBUG] Final attempt debugging:")
-                    log(f"[DEBUG] Upload path: {upload_path}")
-                    log(f"[DEBUG] Job directory: {job_dir}")
-                    log(f"[DEBUG] Available files: {available_files}")
-                    log(f"[DEBUG] Job directory exists: {job_dir.exists()}")
-
-                    # Check if upload path is different from job directory
-                    if upload_path and job_dir.exists():
-                        upload_parent = Path(upload_path).parent
-                        log(f"[DEBUG] Upload path parent: {upload_parent}")
-                        log(f"[DEBUG] Upload path parent exists: {upload_parent.exists()}")
-                        if upload_parent.exists():
-                            try:
-                                parent_contents = [p.name for p in upload_parent.iterdir()]
-                                log(f"[DEBUG] Upload path parent contents: {parent_contents}")
-                            except Exception as e:
-                                log(f"[DEBUG] Error listing upload path parent: {e}")
-
-                    # Additional debugging info
-                    if job_dir.exists():
-                        log(f"[DEBUG] Job directory permissions: {oct(job_dir.stat().st_mode)}")
-                        try:
-                            for root, dirs, files in os.walk(job_dir):
-                                level = root.replace(str(job_dir), '').count(os.sep)
-                                indent = ' ' * 2 * level
-                                log(f"[DEBUG] {indent}{os.path.basename(root)}/")
-                                subindent = ' ' * 2 * (level + 1)
-                                for file in files:
-                                    file_path = os.path.join(root, file)
-                                    try:
-                                        file_stat = os.stat(file_path)
-                                        log(f"[DEBUG] {subindent}{file} (size: {file_stat.st_size}, mode: {oct(file_stat.st_mode)})")
-                                    except Exception as e:
-                                        log(f"[DEBUG] {subindent}{file} (error: {e})")
-                        except Exception as e:
-                            log(f"[DEBUG] Error walking job directory: {e}")
-
-                    # Check if the upload path exists at all
-                    if upload_path:
-                        upload_path_obj = Path(upload_path)
-                        log(f"[DEBUG] Upload path exists: {upload_path_obj.exists()}")
-                        if upload_path_obj.exists():
-                            log(f"[DEBUG] Upload path size: {upload_path_obj.stat().st_size} bytes")
-                            log(f"[DEBUG] Upload path is file: {upload_path_obj.is_file()}")
-                        else:
-                            log(f"[DEBUG] Upload path parent exists: {upload_path_obj.parent.exists()}")
-                            if upload_path_obj.parent.exists():
-                                try:
-                                    log(f"[DEBUG] Upload path parent contents: {[p.name for p in upload_path_obj.parent.iterdir()]}")
-                                except Exception as e:
-                                    log(f"[DEBUG] Error listing upload path parent: {e}")
-
-
-                    # More flexible error message since system now accepts any audio file
-                    audio_files = [f for f in available_files if f.endswith(('.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma', '.webm'))]
-                    if audio_files:
-                        log(f"[INFO] Audio files found in directory: {audio_files} - possible file access issue")
-                        raise RuntimeError(
-                            f"Audio file not accessible. Upload path: {upload_path}, "
-                            f"Job directory: {job_dir}, Available audio files: {audio_files}"
-                        )
-                    else:
-                        raise RuntimeError(
-                            f"No audio file found. Upload path: {upload_path}, "
-                            f"Job directory: {job_dir}, Available files: {available_files}"
-                        )
-
-        # Validate audio file is not empty and still accessible
-        if hint_audio is None:
-            raise RuntimeError("Audio file is None - this should not happen")
-
-        # Additional validation before processing
-        try:
-            audio_size = hint_audio.stat().st_size
-            if audio_size == 0:
-                raise RuntimeError(f"Audio file exists but is empty (0 bytes): {hint_audio}")
-
-            # Verify file is still readable
-            with open(hint_audio, 'rb') as f:
-                header = f.read(64)
-                if len(header) < 64:
-                    raise RuntimeError(f"Audio file appears truncated: only {len(header)} bytes readable")
-
-            log(f"[INFO] Audio file validated: {hint_audio} ({audio_size} bytes)")
-        except Exception as e:
-            log(f"[ERROR] Audio file validation failed: {e}")
-            # Try to find alternative audio file
-            log(f"[DEBUG] Attempting to find alternative audio file...")
-            alternative_audio = _find_any_audio(job_dir)
-            if alternative_audio and alternative_audio != hint_audio:
-                log(f"[INFO] Found alternative audio file: {alternative_audio}")
-                hint_audio = alternative_audio
-                audio_size = hint_audio.stat().st_size
-                log(f"[INFO] Using alternative audio file: {hint_audio} ({audio_size} bytes)")
-            else:
-                raise RuntimeError(f"Audio file validation failed and no alternative found: {e}")
+            log(f"[INFO] Audio file exists: {hint_audio.exists()}")
+            log(f"[INFO] Audio file size: {hint_audio.stat().st_size} bytes")
+            log(f"[INFO] Audio filename: {hint_audio.name}")
         # Enhance audio using Auphonic API if enabled
         enhanced_audio_path = hint_audio
         if settings.AUPHONIC_ENABLED and settings.AUPHONIC_API_KEY:
@@ -1637,22 +1388,26 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
                 from pathlib import Path as PathLib
                 
                 # Import the Auphonic client
-                sys.path.insert(0, str(PIPELINE_SRC))
-                from auphonic_api import AuphonicAPI
+                from pipeline.auphonic_api import AuphonicAPI
                 
                 # Enhance the audio
-                auphonic_client = AuphonicAPI()
-                enhanced_path = auphonic_client.enhance_audio(hint_audio)
-                
-                if enhanced_path and enhanced_path.exists():
-                    log(f"[INFO] Auphonic enhancement successful: {enhanced_path}")
-                    enhanced_audio_path = enhanced_path
-                    # Update the monitoring with enhanced file size
-                    audio_size = enhanced_audio_path.stat().st_size
-                    log(f"[INFO] Enhanced audio file size: {audio_size} bytes")
-                else:
-                    log(f"[WARNING] Auphonic enhancement failed, using original audio")
+                if hint_audio is None:
+                    log(f"[ERROR] No audio file available for Auphonic enhancement")
                     enhanced_audio_path = hint_audio
+                else:
+                    auphonic_client = AuphonicAPI()
+                    enhanced_path = auphonic_client.enhance_audio(hint_audio)
+                    
+                    if enhanced_path and enhanced_path.exists():
+                        log(f"[INFO] Auphonic enhancement successful: {enhanced_path}")
+                        enhanced_audio_path = enhanced_path
+                        # Update the monitoring with enhanced file size
+                        if enhanced_audio_path:
+                            audio_size = enhanced_audio_path.stat().st_size
+                            log(f"[INFO] Enhanced audio file size: {audio_size} bytes")
+                    else:
+                        log(f"[WARNING] Auphonic enhancement failed, using original audio")
+                        enhanced_audio_path = hint_audio
                     
             except Exception as e:
                 log(f"[WARNING] Auphonic enhancement failed: {e}")

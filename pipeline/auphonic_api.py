@@ -17,7 +17,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from config import settings
+from pipeline.config import settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
