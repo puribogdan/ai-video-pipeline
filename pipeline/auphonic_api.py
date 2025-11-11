@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
 import requests
@@ -90,6 +91,12 @@ class AuphonicAPI:
             
             logger.info(f"Starting Auphonic enhancement for: {input_audio_path}")
             
+            # Step 0: Clean up old productions before starting new one
+            logger.info("Cleaning up old/unfinished productions...")
+            cleanup_success = self.cleanup_old_productions(max_age_hours=24)
+            if not cleanup_success:
+                logger.warning("Cleanup failed, but proceeding with enhancement...")
+            
             # Step 1: Start production
             production_id = self._start_production(input_audio_path)
             if not production_id:
@@ -117,6 +124,83 @@ class AuphonicAPI:
             logger.error(f"Auphonic enhancement failed: {e}")
             return None
     
+    def cleanup_old_productions(self, max_age_hours: int = 24) -> bool:
+        """
+        Clean up old/unfinished Auphonic productions to avoid hitting API limits
+        
+        Args:
+            max_age_hours: Maximum age in hours for productions to keep (default: 24)
+            
+        Returns:
+            bool: True if cleanup was successful, False otherwise
+        """
+        try:
+            logger.info(f"Starting cleanup of productions older than {max_age_hours} hours...")
+            
+            # Get all productions
+            url = f"{self.base_url}/productions.json"
+            response = self.session.get(url, timeout=30)
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to get productions list: {response.status_code}")
+                return False
+            
+            result = response.json()
+            productions = result.get('data', [])
+            
+            if not productions:
+                logger.info("No productions found to clean up")
+                return True
+            
+            cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
+            cleaned_count = 0
+            
+            for production in productions:
+                try:
+                    status = production.get('status')
+                    created_at = production.get('creation_time')
+                    
+                    # Skip if no creation time
+                    if not created_at:
+                        continue
+                    
+                    # Parse creation time (assuming it's in ISO format)
+                    try:
+                        # Auphonic uses Unix timestamp or ISO format
+                        if isinstance(created_at, str):
+                            created_dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        else:
+                            # Assume it's a Unix timestamp
+                            created_dt = datetime.fromtimestamp(created_at)
+                    except (ValueError, TypeError):
+                        logger.warning(f"Could not parse creation time for production {production.get('uuid', 'unknown')}")
+                        continue
+                    
+                    # Delete if status is not "done" (2) and production is old
+                    # Status codes: 0=Queued, 1=Processing, 2=Done, 3=Error, 4=Starting
+                    if status not in [2, "Done"] and created_dt < cutoff_time:
+                        production_uuid = production.get('uuid')
+                        if production_uuid:
+                            delete_url = f"{self.base_url}/production/{production_uuid}.json"
+                            delete_response = self.session.delete(delete_url, timeout=30)
+                            
+                            if delete_response.status_code in [200, 204]:
+                                cleaned_count += 1
+                                logger.info(f"Deleted old production: {production_uuid} (status: {status})")
+                            else:
+                                logger.warning(f"Failed to delete production {production_uuid}: {delete_response.status_code}")
+                    
+                except Exception as e:
+                    logger.warning(f"Error processing production {production.get('uuid', 'unknown')}: {e}")
+                    continue
+            
+            logger.info(f"Cleanup completed: {cleaned_count} old productions deleted")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup old productions: {e}")
+            return False
+
     def _start_production(self, audio_path: Path) -> Optional[str]:
         """Start a new Auphonic production"""
         try:
@@ -164,6 +248,22 @@ class AuphonicAPI:
                     return None
             else:
                 logger.error(f"Auphonic API error: {response.status_code} - {response.text}")
+                
+                # If we get the "too many unfinished productions" error, try cleanup and retry once
+                if response.status_code == 400 and "too many unfinished productions" in response.text.lower():
+                    logger.info("Too many unfinished productions detected, attempting cleanup and retry...")
+                    if self.cleanup_old_productions(max_age_hours=12):  # More aggressive cleanup
+                        logger.info("Retrying production start after cleanup...")
+                        response = self.session.post(url, data=data, files=files, timeout=30)
+                        files["input_file"].close()
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            production_id = result.get("data", {}).get("uuid")
+                            if production_id:
+                                logger.info(f"Production created successfully after cleanup: {production_id}")
+                                return production_id
+                
                 return None
                 
         except Exception as e:
