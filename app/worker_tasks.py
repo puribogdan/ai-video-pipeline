@@ -1348,11 +1348,47 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
                 except Exception as e:
                     job_files = [f"error_listing_dir: {e}"]
 
-            raise RuntimeError(
-                f"No valid audio file found. Upload path: {upload_path}, "
-                f"Job directory: {job_dir}, Available files: {job_files}. "
-                f"System now accepts any audio filename - ensure file is fully uploaded and accessible."
-            )
+            # Additional wait and retry mechanism for Render deployments
+            log(f"[WARNING] Filesystem sync issue detected. Waiting for file to become accessible...")
+            for wait_attempt in range(5):
+                time.sleep(1)  # Wait 1 second between attempts
+                log(f"[DEBUG] Retry attempt {wait_attempt + 1}/5 - checking for files again...")
+                job_files_after_wait = list(job_dir.glob('*'))
+                # Check for audio files using extension patterns
+                audio_extensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.wma', '.webm']
+                audio_files_after_wait = []
+                for file_path in job_files_after_wait:
+                    if file_path.is_file() and file_path.suffix.lower() in audio_extensions:
+                        audio_files_after_wait.append(file_path)
+                
+                if audio_files_after_wait:
+                    log(f"[INFO] File found after waiting: {audio_files_after_wait[0]}")
+                    final_audio_path = audio_files_after_wait[0]
+                    break
+                else:
+                    log(f"[DEBUG] Still no audio files found after {wait_attempt + 1} seconds")
+            
+            # If still not found, provide more detailed debugging
+            if not final_audio_path or not final_audio_path.exists():
+                log(f"[ERROR] CRITICAL: File persistence issue detected")
+                log(f"[ERROR] Upload was reported successful but file not accessible to worker")
+                log(f"[ERROR] This suggests a Render filesystem synchronization issue")
+                log(f"[ERROR] Job directory: {job_dir}")
+                log(f"[ERROR] Directory contents: {[str(p) for p in job_dir.glob('*')]}")
+                
+                # Try to find any file that might be the audio
+                all_files = list(job_dir.glob('*'))
+                potential_audio = [f for f in all_files if f.is_file() and f.stat().st_size > 1000]
+                if potential_audio:
+                    log(f"[WARNING] Found potential audio file (larger than 1KB): {potential_audio[0]}")
+                    log(f"[WARNING] Attempting to use: {potential_audio[0]}")
+                    final_audio_path = potential_audio[0]
+                else:
+                    raise RuntimeError(
+                        f"No valid audio file found. Upload path: {upload_path}, "
+                        f"Job directory: {job_dir}, Available files: {job_files}. "
+                        f"System now accepts any audio filename - ensure file is fully uploaded and accessible."
+                    )
 
         if os.getenv("DEV_FAKE_PIPELINE", "0") == "1":
             log("Using fake pipeline mode")
