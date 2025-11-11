@@ -282,11 +282,11 @@ def enhance_auto(y: np.ndarray, sr: int) -> np.ndarray:
     # 3) Noise reduction (strength from SNR)
     mono_ref = y.mean(axis=1).astype(np.float32)
     snr_db = estimate_snr_db(mono_ref)
-    if   snr_db <= 3:   prop = 0.96
-    elif snr_db <= 8:   prop = 0.92
-    elif snr_db <= 15:  prop = 0.88
-    elif snr_db <= 25:  prop = 0.82
-    else:               prop = 0.78
+    if   snr_db <= 3:   prop = 0.98
+    elif snr_db <= 8:   prop = 0.96
+    elif snr_db <= 15:  prop = 0.95
+    elif snr_db <= 25:  prop = 0.95
+    else:               prop = 0.95
 
     y_dn = np.zeros_like(y, dtype=np.float32)
     for c in range(ch):

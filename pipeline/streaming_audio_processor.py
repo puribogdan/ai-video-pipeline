@@ -847,9 +847,9 @@ class StreamingAudioProcessor:
                     y=audio_data[:, ch],
                     sr=sample_rate,
                     stationary=False,
-                    prop_decrease=0.85,
-                    time_mask_smooth_ms=60,
-                    freq_mask_smooth_hz=250,
+                    prop_decrease=0.95,
+                    time_mask_smooth_ms=80,
+                    freq_mask_smooth_hz=300,
                 ).astype(np.float32)
 
             return reduced
