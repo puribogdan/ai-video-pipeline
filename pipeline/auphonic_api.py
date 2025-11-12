@@ -176,15 +176,10 @@ class AuphonicAPI:
                 files = {"input_file": f}
                 
                 data = {
+                    "preset": "auphonic_cleaner",
                     "title": f"Enhancement - {audio_path.stem} (attempt {attempt + 1})",
-                    "filtering": "true",
-                    "normloudness": "true",
-                    "loudnesstarget": "-24",
-                    "leveler": "true",
-                    "action": "start",
-                    "denoise": "true",
-                    "denoiseamount": "12",
-                    "silence_cutter": "true"
+                    "action": "start"
+                  
 
                 }
                 
