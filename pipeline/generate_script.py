@@ -298,6 +298,13 @@ CHARACTER RULES:
    - ALL characters go in that opening sentence only
    - Then describe what they're doing and the environment
 
+4. **Distinct Character Descriptions:**
+   - Each character MUST have unique, specific visual details
+   - Include: hair color, hair style, clothing colors, clothing patterns, accessories
+   - ❌ NEVER use vague terms: "casual clothes", "comfortable outfit", "nice dress"
+   - ✅ ALWAYS use specific details: "red hoodie with white stripes", "green t-shirt and black jeans"
+
+
 ---
 
 EXAMPLES:
@@ -377,6 +384,13 @@ CHARACTER RULES:
    - After "Only add these characters in the image: ..." list, do NOT introduce new characters
    - ALL characters go in that opening sentence only
    - Then describe what they're doing and the environment
+
+4. **Distinct Character Descriptions:**
+   - Each character MUST have unique, specific visual details
+   - Include: hair color, hair style, clothing colors, clothing patterns, accessories
+   - ❌ NEVER use vague terms: "casual clothes", "comfortable outfit", "nice dress"
+   - ✅ ALWAYS use specific details: "red hoodie with white stripes", "green t-shirt and black jeans"
+
 
 ---
 
