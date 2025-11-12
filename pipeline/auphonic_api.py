@@ -179,9 +179,13 @@ class AuphonicAPI:
                     "title": f"Enhancement - {audio_path.stem} (attempt {attempt + 1})",
                     "filtering": "true",
                     "normloudness": "true",
-                    "loudnesstarget": "-16",
+                    "loudnesstarget": "-24",
                     "leveler": "true",
-                    "action": "start"
+                    "action": "start",
+                    "denoise": "true",
+                    "denoiseamount": "12",
+                    "silence_cutter": "true"
+
                 }
                 
                 response = self.session.post(url, headers=headers, files=files, data=data, timeout=60)
