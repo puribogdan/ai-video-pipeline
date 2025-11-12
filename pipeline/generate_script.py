@@ -274,15 +274,16 @@ Task: Fill in the "scene_description" field for each scene based on the narratio
 
 MANDATORY FORMAT FOR EVERY SCENE:
 
-"The characters in the image are: {portrait_subject}, [CHARACTER 2], [CHARACTER 3], etc. They are [action]. The setting is [environment]."
+"Only add these characters in the image: {portrait_subject}, [CHARACTER 2], [CHARACTER 3], etc. They are [action]. The setting is [environment]."
 
 ---
 
 CHARACTER RULES:
 
-1. **List ALL Characters UPFRONT:**
-   - EVERY character visible in the scene MUST be in the opening character list
+1. **List ONLY Characters That Should Appear:**
+   - ONLY characters visible in THIS scene go in the character list
    - If a character appears in the narration (wizard, ghost, dragon, etc.), they go in the character list
+   - If a character is NOT in the narration, do NOT include them
    - Each character needs: species/type, age, physical features, clothing, accessories
    - ❌ NEVER use: "someone", "a person", "companion", "friend", "a group"
    - ✅ ALWAYS use: specific descriptions
@@ -290,10 +291,10 @@ CHARACTER RULES:
 2. **Character Consistency:**
    - When a character appears again: use the EXACT same description from before
    - New characters: add to the list with full details
-   - If a character leaves: remove from the list
+   - If a character leaves the story: REMOVE them from the list
 
 3. **NO Characters Outside The List:**
-   - After "The characters in the image are: ..." list, do NOT introduce new characters
+   - After "Only add these characters in the image: ..." list, do NOT introduce new characters
    - ALL characters go in that opening sentence only
    - Then describe what they're doing and the environment
 
@@ -302,32 +303,38 @@ CHARACTER RULES:
 EXAMPLES:
 
 **Wrong - Character added after the list:**
-❌ "The characters in the image are: {portrait_subject}. They meet a friendly wizard wearing blue robes..."
+❌ "Only add these characters in the image: {portrait_subject}. They meet a friendly wizard wearing blue robes..."
    Problem: Wizard should be IN the character list
 
-✅ "The characters in the image are: {portrait_subject}, a friendly wizard with a long white beard wearing blue robes and a pointed hat. They are meeting on a path..."
+✅ "Only add these characters in the image: {portrait_subject}, a friendly wizard with a long white beard wearing blue robes and a pointed hat. They are meeting on a path..."
 
-**Correct progression:**
+**Correct progression (character enters then leaves):**
 Scene 1:
 {{
-  "scene_description": "The characters in the image are: {portrait_subject}. They are walking through a forest path. The setting is a dense forest with tall trees."
+  "scene_description": "Only add these characters in the image: {portrait_subject}. They are walking through a forest path. The setting is a dense forest with tall trees."
 }}
 
-Scene 2 (new character appears):
+Scene 2 (wizard appears):
 {{
-  "scene_description": "The characters in the image are: {portrait_subject}, a tall wizard with a long white beard wearing blue robes and a pointed hat. They are meeting on the forest path, the wizard extending his hand in greeting. The setting is the same dense forest with a magical glow around them."
+  "scene_description": "Only add these characters in the image: {portrait_subject}, a tall wizard with a long white beard wearing blue robes and a pointed hat. They are meeting on the forest path, the wizard extending his hand in greeting. The setting is the same dense forest with a magical glow around them."
 }}
 
-Scene 3 (same characters):
+Scene 3 (wizard still present):
 {{
-  "scene_description": "The characters in the image are: {portrait_subject}, a tall wizard with a long white beard wearing blue robes and a pointed hat. They are walking together down the path, the wizard pointing ahead. The setting is a forest clearing with sunlight streaming through."
+  "scene_description": "Only add these characters in the image: {portrait_subject}, a tall wizard with a long white beard wearing blue robes and a pointed hat. They are walking together down the path, the wizard pointing ahead. The setting is a forest clearing with sunlight streaming through."
+}}
+
+Scene 4 (wizard leaves):
+{{
+  "scene_description": "Only add these characters in the image: {portrait_subject}. They are waving goodbye as they continue alone down the path. The setting is an open meadow with flowers."
 }}
 
 ---
 
 CHECKLIST:
-□ Starts with "The characters in the image are: {portrait_subject},"
-□ ALL visible characters are in the opening list (no characters mentioned later)
+□ Starts with "Only add these characters in the image: {portrait_subject},"
+□ ONLY characters in THIS scene are in the list
+□ Characters who left are NOT in the list
 □ No generic words like "companion" or "someone"
 □ Returning characters use EXACT same descriptions
 
@@ -347,15 +354,16 @@ Task: Fill in the "scene_description" field for each scene based on the narratio
 
 MANDATORY FORMAT FOR EVERY SCENE:
 
-"The characters in the image are: [CHARACTER 1], [CHARACTER 2], [CHARACTER 3], etc. They are [action]. The setting is [environment]."
+"Only add these characters in the image: [CHARACTER 1], [CHARACTER 2], [CHARACTER 3], etc. They are [action]. The setting is [environment]."
 
 ---
 
 CHARACTER RULES:
 
-1. **List ALL Characters UPFRONT:**
-   - EVERY character visible in the scene MUST be in the opening character list
+1. **List ONLY Characters That Should Appear:**
+   - ONLY characters visible in THIS scene go in the character list
    - If a character appears in the narration (wizard, ghost, dragon, etc.), they go in the character list
+   - If a character is NOT in the narration, do NOT include them
    - Each character needs: species/type, age, physical features, clothing, accessories
    - ❌ NEVER use: "someone", "a person", "companion", "friend", "a group"
    - ✅ ALWAYS use: specific descriptions
@@ -363,10 +371,10 @@ CHARACTER RULES:
 2. **Character Consistency:**
    - When a character appears again: use the EXACT same description from before
    - New characters: add to the list with full details
-   - If a character leaves: remove from the list
+   - If a character leaves the story: REMOVE them from the list
 
 3. **NO Characters Outside The List:**
-   - After "The characters in the image are: ..." list, do NOT introduce new characters
+   - After "Only add these characters in the image: ..." list, do NOT introduce new characters
    - ALL characters go in that opening sentence only
    - Then describe what they're doing and the environment
 
@@ -375,32 +383,38 @@ CHARACTER RULES:
 EXAMPLES:
 
 **Wrong - Character added after the list:**
-❌ "The characters in the image are: a young boy with brown hair wearing a red jacket. He meets a friendly wizard..."
+❌ "Only add these characters in the image: a young boy with brown hair wearing a red jacket. He meets a friendly wizard..."
    Problem: Wizard should be IN the character list
 
-✅ "The characters in the image are: a young boy with brown hair wearing a red jacket, a friendly wizard with a long white beard wearing blue robes and a pointed hat. They are meeting on a path..."
+✅ "Only add these characters in the image: a young boy with brown hair wearing a red jacket, a friendly wizard with a long white beard wearing blue robes and a pointed hat. They are meeting on a path..."
 
-**Correct progression:**
+**Correct progression (character enters then leaves):**
 Scene 1:
 {{
-  "scene_description": "The characters in the image are: a young boy with brown hair wearing a red jacket and blue jeans. He is walking through a forest path. The setting is a dense forest with tall trees."
+  "scene_description": "Only add these characters in the image: a young boy with brown hair wearing a red jacket and blue jeans. He is walking through a forest path. The setting is a dense forest with tall trees."
 }}
 
-Scene 2 (new character appears):
+Scene 2 (wizard appears):
 {{
-  "scene_description": "The characters in the image are: a young boy with brown hair wearing a red jacket and blue jeans, a tall wizard with a long white beard wearing blue robes and a pointed hat. They are meeting on the forest path, the wizard extending his hand in greeting. The setting is the same dense forest with a magical glow around them."
+  "scene_description": "Only add these characters in the image: a young boy with brown hair wearing a red jacket and blue jeans, a tall wizard with a long white beard wearing blue robes and a pointed hat. They are meeting on the forest path, the wizard extending his hand in greeting. The setting is the same dense forest with a magical glow around them."
 }}
 
-Scene 3 (same characters):
+Scene 3 (wizard still present):
 {{
-  "scene_description": "The characters in the image are: a young boy with brown hair wearing a red jacket and blue jeans, a tall wizard with a long white beard wearing blue robes and a pointed hat. They are walking together down the path, the wizard pointing ahead. The setting is a forest clearing with sunlight streaming through."
+  "scene_description": "Only add these characters in the image: a young boy with brown hair wearing a red jacket and blue jeans, a tall wizard with a long white beard wearing blue robes and a pointed hat. They are walking together down the path, the wizard pointing ahead. The setting is a forest clearing with sunlight streaming through."
+}}
+
+Scene 4 (wizard leaves):
+{{
+  "scene_description": "Only add these characters in the image: a young boy with brown hair wearing a red jacket and blue jeans. He is waving goodbye as he continues alone down the path. The setting is an open meadow with flowers."
 }}
 
 ---
 
 CHECKLIST:
-□ Starts with "The characters in the image are:"
-□ ALL visible characters are in the opening list (no characters mentioned later)
+□ Starts with "Only add these characters in the image:"
+□ ONLY characters in THIS scene are in the list
+□ Characters who left are NOT in the list
 □ No generic words like "companion" or "someone"
 □ Returning characters use EXACT same descriptions
 
