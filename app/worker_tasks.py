@@ -1436,6 +1436,15 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
             log(f"[INFO] Audio file exists: {hint_audio.exists()}")
             log(f"[INFO] Audio file size: {hint_audio.stat().st_size} bytes")
             log(f"[INFO] Audio filename: {hint_audio.name}")
+
+        # Update status: processing - DO THIS BEFORE Auphonic enhancement!
+        try:
+            from app.main import _save_job_completion
+            _save_job_completion(job_id, "processing", {"message": "Starting video processing pipeline"})
+            log(f"[INFO] Job status updated to 'processing' for job_id: {job_id}")
+        except Exception as e:
+            log(f"[WARNING] Failed to save processing status: {e}")
+
         # Enhance audio using Auphonic API if enabled
         enhanced_audio_path = hint_audio
         if settings.AUPHONIC_ENABLED and settings.AUPHONIC_API_KEY:
@@ -1474,13 +1483,6 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
 
         # Run the main video processing pipeline
         try:
-            # Update status: processing
-            try:
-                from app.main import _save_job_completion
-                _save_job_completion(job_id, "processing", {"message": "Processing audio, generating script, and creating video frames"})
-            except Exception as e:
-                log(f"[WARNING] Failed to save processing status: {e}")
-
             # Record processing stage start
             processing_start = time.time()
             final_video, detected_language = _run_make_video(job_dir, enhanced_audio_path, style)
@@ -1493,13 +1495,6 @@ async def _process_job_async(job_id: str, email: str, upload_path: str, style: s
 
             # Record job stage completion
             monitor.record_job_stage(job_id, "video_processing", processing_time, {"style": style})
-
-            # Update status: processing
-            try:
-                from app.main import _save_job_completion
-                _save_job_completion(job_id, "processing", {"message": "Finalizing video - adding audio and preparing for upload"})
-            except Exception as e:
-                log(f"[WARNING] Failed to save completion status: {e}")
 
         except Exception as e:
             log(f"[ERROR] Video processing failed for job {job_id}: {e}")
