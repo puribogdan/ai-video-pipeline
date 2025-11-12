@@ -246,7 +246,7 @@ def build_subsequent_portrait_prompt(desc: str, style_line: str, portrait_descri
     portrait_prompt = f"""
 
 """
-    return f"{style_line} \n\n Main's character face must be clearly visible to the camera  {portrait_description} {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
+    return f"{style_line} \n\n   {portrait_prompt} {CAMERA_ANGLE_PROMPT}\n\nMain's character face must be clearly visible to the camera \n SCENE BRIEF: {desc}"
 
 def build_subsequent_no_portrait_prompt(desc: str, style_line: str) -> str:
     return f"{style_line} \n  {CAMERA_ANGLE_PROMPT}\n\n SCENE BRIEF: {desc}"
