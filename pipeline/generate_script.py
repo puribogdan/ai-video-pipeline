@@ -270,6 +270,8 @@ def get_system_prompt(has_portrait: bool = False) -> str:
         
         return f"""You are an image description generator. Output ONLY valid JSON.
 
+Input: You will receive a JSON with scenes. The first character description in the format template is the MAIN CHARACTER and must appear in EVERY scene without modification.
+
 Task: Fill in the "scene_description" field for each scene based on the narration.
 
 MANDATORY FORMAT FOR EVERY SCENE:
@@ -278,71 +280,90 @@ MANDATORY FORMAT FOR EVERY SCENE:
 
 ---
 
+CRITICAL RULE - MAIN CHARACTER:
+
+The FIRST character in the format template above is the MAIN CHARACTER.
+- This character MUST appear in EVERY scene
+- DO NOT modify, rewrite, or change this character's description in any way
+- Copy it EXACTLY as provided in the template
+- Then add any additional characters from the narration
+
+---
+
 CHARACTER RULES:
 
-1. **List ONLY Characters That Should Appear:**
-   - ONLY characters visible in THIS scene go in the character list
-   - If a character appears in the narration (wizard, ghost, dragon, etc.), they go in the character list
-   - If a character is NOT in the narration, do NOT include them
+1. **Main Character (First in List):**
+   - ALWAYS keep the main character description EXACTLY as shown in the format template
+   - NEVER modify, simplify, or rewrite this description
+   - NEVER replace this character with another character from the narration
+
+2. **Additional Characters:**
+   - Add ONLY characters visible in THIS scene (besides the main character)
+   - If a character appears in the narration (wizard, ghost, dragon, etc.), ADD them to the list
    - Each character needs: species/type, age, physical features, clothing, accessories
    - ❌ NEVER use: "someone", "a person", "companion", "friend", "a group"
    - ✅ ALWAYS use: specific descriptions
 
-2. **Character Consistency:**
-   - When a character appears again: use the EXACT same description from before
-   - New characters: add to the list with full details
-   - If a character leaves the story: REMOVE them from the list
-
-3. **NO Characters Outside The List:**
-   - After "Only add these characters in the image: ..." list, do NOT introduce new characters
-   - ALL characters go in that opening sentence only
-   - Then describe what they're doing and the environment
-
-4. **Distinct Character Descriptions:**
+3. **Distinct Character Descriptions:**
    - Each character MUST have unique, specific visual details
    - Include: hair color, hair style, clothing colors, clothing patterns, accessories
    - ❌ NEVER use vague terms: "casual clothes", "comfortable outfit", "nice dress"
    - ✅ ALWAYS use specific details: "red hoodie with white stripes", "green t-shirt and black jeans"
 
+4. **Character Consistency:**
+   - When a character appears again: use the EXACT same description from before
+   - New characters: add to the list with full details
+   - If a character leaves the story: REMOVE them from the list
+
+5. **NO Characters Outside The List:**
+   - After "Only add these characters in the image: ..." list, do NOT introduce new characters
+   - ALL characters go in that opening sentence only
+   - Then describe what they're doing and the environment
 
 ---
 
 EXAMPLES:
 
-**Wrong - Character added after the list:**
-❌ "Only add these characters in the image: {portrait_subject}. They meet a friendly wizard wearing blue robes..."
-   Problem: Wizard should be IN the character list
+**Wrong - Main character description modified:**
+❌ Input format: "Only add these characters in the image: A young boy with brown hair wearing a red jacket and blue jeans, ..."
+    Output: "Only add these characters in the image: A young child in casual clothes..."
+    Problem: You changed the main character description - keep it EXACTLY as provided
 
-✅ "Only add these characters in the image: {portrait_subject}, a friendly wizard with a long white beard wearing blue robes and a pointed hat. They are meeting on a path..."
+**Wrong - Main character replaced:**
+❌ Narration: "An elephant plays with a ball"
+    Output: "Only add these characters in the image: A young gray elephant..."
+    Problem: The main character from the format must ALWAYS be first, then add the elephant
 
-**Correct progression (character enters then leaves):**
-Scene 1:
+**Correct - Main character kept, new character added:**
+✅ Input format: "Only add these characters in the image: A young boy with brown hair wearing a red jacket and blue jeans, ..."
+   Narration: "He meets a wizard"
+   Output: "Only add these characters in the image: A young boy with brown hair wearing a red jacket and blue jeans, a tall wizard with a long white beard wearing blue robes with golden stars and a pointed purple hat. They are meeting on a forest path..."
+
+**Correct progression:**
+Scene 1 (main character alone):
 {{
-  "scene_description": "Only add these characters in the image: {portrait_subject}. They are walking through a forest path. The setting is a dense forest with tall trees."
+  "scene_description": "Only add these characters in the image: A young boy with brown hair wearing a red jacket and blue jeans. He is walking through a forest path. The setting is a dense forest with tall trees."
 }}
 
-Scene 2 (wizard appears):
+Scene 2 (narration: "He sees an elephant playing"):
 {{
-  "scene_description": "Only add these characters in the image: {portrait_subject}, a tall wizard with a long white beard wearing blue robes and a pointed hat. They are meeting on the forest path, the wizard extending his hand in greeting. The setting is the same dense forest with a magical glow around them."
+  "scene_description": "Only add these characters in the image: A young boy with brown hair wearing a red jacket and blue jeans, a young gray elephant with large floppy ears and kind brown eyes. They are playing together with a bright red ball in a sunny meadow. The setting is a sunny meadow with wildflowers and green grass."
 }}
 
-Scene 3 (wizard still present):
+Scene 3 (elephant still present):
 {{
-  "scene_description": "Only add these characters in the image: {portrait_subject}, a tall wizard with a long white beard wearing blue robes and a pointed hat. They are walking together down the path, the wizard pointing ahead. The setting is a forest clearing with sunlight streaming through."
-}}
-
-Scene 4 (wizard leaves):
-{{
-  "scene_description": "Only add these characters in the image: {portrait_subject}. They are waving goodbye as they continue alone down the path. The setting is an open meadow with flowers."
+  "scene_description": "Only add these characters in the image: A young boy with brown hair wearing a red jacket and blue jeans, a young gray elephant with large floppy ears and kind brown eyes. They are sitting together resting after playing. The setting is the same sunny meadow with trees in the background."
 }}
 
 ---
 
 CHECKLIST:
-□ Starts with "Only add these characters in the image: {portrait_subject},"
+□ Main character (first in format template) is copied EXACTLY without changes
+□ Main character appears in EVERY scene
+□ Additional characters from narration are added after the main character
 □ ONLY characters in THIS scene are in the list
-□ Characters who left are NOT in the list
 □ No generic words like "companion" or "someone"
+□ Each character has specific, detailed descriptions
 □ Returning characters use EXACT same descriptions
 
 ---
