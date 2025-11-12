@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Auphonic API Integration Module - Documentation-Based Implementation
+Auphonic API Integration Module - Fixed with Robust Retry & Proper Success Detection
 """
 
 import os
@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class AuphonicAPI:
-    """Auphonic API client following official documentation"""
+    """Auphonic API client with robust retry and proper success detection"""
     
     # Official status codes from https://auphonic.com/api/info/production_status.json
     STATUS_CODES = {
@@ -51,6 +53,22 @@ class AuphonicAPI:
         
         self.base_url = "https://auphonic.com/api"
         
+        # Configure requests session with retry strategy
+        self.session = requests.Session()
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=2,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["HEAD", "GET", "OPTIONS", "POST"]
+        )
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=10,
+            pool_maxsize=20
+        )
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+        
         if not self.enabled:
             logger.info("Auphonic API is disabled (AUPHONIC_ENABLED=false)")
             return
@@ -60,18 +78,11 @@ class AuphonicAPI:
             self.enabled = False
             return
         
-        logger.info("Auphonic API client initialized")
+        logger.info("Auphonic API client initialized with retry strategy")
     
     def enhance_audio(self, input_audio_path: Path, output_audio_path: Optional[Path] = None) -> Optional[Path]:
         """
-        Enhance audio using Auphonic Simple API
-        
-        Args:
-            input_audio_path: Path to the original audio file
-            output_audio_path: Optional path for enhanced audio
-            
-        Returns:
-            Path to enhanced audio file, or None if failed
+        Enhance audio using Auphonic Simple API with robust retry logic
         """
         if not self.enabled:
             logger.info("Auphonic disabled, using original audio")
@@ -85,61 +96,95 @@ class AuphonicAPI:
         if output_audio_path is None:
             output_audio_path = input_audio_path.parent / f"{input_audio_path.stem}_enhanced{input_audio_path.suffix}"
         
-        try:
-            logger.info(f"Starting Auphonic enhancement: {input_audio_path.name}")
-            
-            # Step 1: Create and start production using Simple API
-            production_uuid = self._create_production(input_audio_path)
-            if not production_uuid:
-                return None
-            
-            logger.info(f"Production created: {production_uuid}")
-            logger.info(f"View at: https://auphonic.com/production/{production_uuid}")
-            
-            # Step 2: Wait for completion (status must be 3)
-            if not self._wait_for_completion(production_uuid):
-                # Only cleanup if it FAILED
-                logger.error("Production failed, cleaning up...")
-                self._cleanup_production(production_uuid)
-                return None
-            
-            # Step 3: Download output
-            result = self._download_output(production_uuid, output_audio_path)
-            
-            # Step 4: Keep successful jobs, only cleanup if download failed
-            if result and result.exists():
-                logger.info(f"✅ Enhancement complete: {result}")
-                logger.info(f"✅ Production kept on Auphonic: https://auphonic.com/production/{production_uuid}")
-                return result
-            else:
-                logger.error("Failed to download enhanced audio, cleaning up...")
-                self._cleanup_production(production_uuid)
-                return None
-            
-        except Exception as e:
-            logger.error(f"Enhancement failed: {e}")
-            return None
+        # Enhanced retry mechanism for the entire process
+        max_enhancement_attempts = 3
+        base_delay = 30  # Start with 30 seconds between attempts
+        
+        for attempt in range(max_enhancement_attempts):
+            try:
+                logger.info(f"Starting Auphonic enhancement (attempt {attempt + 1}/{max_enhancement_attempts}): {input_audio_path.name}")
+                
+                # Step 1: Create and start production using Simple API
+                production_uuid = self._create_production_with_retry(input_audio_path, attempt)
+                if not production_uuid:
+                    logger.error(f"Failed to create production on attempt {attempt + 1}")
+                    if attempt < max_enhancement_attempts - 1:
+                        wait_time = base_delay * (2 ** attempt)
+                        logger.info(f"Retrying production creation in {wait_time} seconds...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error("All production creation attempts failed")
+                        return None
+                
+                logger.info(f"Production created: {production_uuid}")
+                logger.info(f"View at: https://auphonic.com/production/{production_uuid}")
+                
+                # Step 2: Wait for completion with proper success detection
+                if not self._wait_for_completion_with_retry(production_uuid):
+                    logger.error("Production failed or timed out")
+                    if attempt < max_enhancement_attempts - 1:
+                        wait_time = base_delay * (2 ** attempt)
+                        logger.info(f"Retrying enhancement in {wait_time} seconds...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error("All enhancement attempts failed")
+                        self._cleanup_production(production_uuid)
+                        return None
+                
+                # Step 3: Download output with retry
+                result = self._download_output_with_retry(production_uuid, output_audio_path)
+                
+                # Step 4: Verify success properly
+                if result and result.exists() and result.stat().st_size > 0:
+                    file_size = result.stat().st_size
+                    logger.info(f"✅ Enhancement complete: {result} ({file_size:,} bytes)")
+                    logger.info(f"✅ Production kept on Auphonic: https://auphonic.com/production/{production_uuid}")
+                    return result
+                else:
+                    logger.error("Failed to download enhanced audio")
+                    if attempt < max_enhancement_attempts - 1:
+                        wait_time = base_delay * (2 ** attempt)
+                        logger.info(f"Retrying download in {wait_time} seconds...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error("All download attempts failed, cleaning up...")
+                        self._cleanup_production(production_uuid)
+                        return None
+                        
+            except Exception as e:
+                logger.error(f"Enhancement attempt {attempt + 1} failed: {e}")
+                if attempt < max_enhancement_attempts - 1:
+                    wait_time = base_delay * (2 ** attempt)
+                    logger.info(f"Retrying entire enhancement in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error("All enhancement attempts failed")
+                    return None
+        
+        return None
     
-    def _create_production(self, audio_path: Path) -> Optional[str]:
-        """Create production using Simple API (single request)"""
+    def _create_production_with_retry(self, audio_path: Path, attempt: int = 0) -> Optional[str]:
+        """Create production with network error handling"""
         url = f"{self.base_url}/simple/productions.json"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         
-        with open(audio_path, "rb") as f:
-            files = {"input_file": f}
-            
-            # Use Simple API parameters as documented
-            data = {
-                "title": f"Enhancement - {audio_path.stem}",
-                "filtering": "true",
-                "normloudness": "true",
-                "loudnesstarget": "-16",
-                "leveler": "true",
-                "action": "start"  # Start immediately
-            }
-            
-            try:
-                response = requests.post(url, headers=headers, files=files, data=data, timeout=60)
+        try:
+            with open(audio_path, "rb") as f:
+                files = {"input_file": f}
+                
+                data = {
+                    "title": f"Enhancement - {audio_path.stem} (attempt {attempt + 1})",
+                    "filtering": "true",
+                    "normloudness": "true",
+                    "loudnesstarget": "-16",
+                    "leveler": "true",
+                    "action": "start"
+                }
+                
+                response = self.session.post(url, headers=headers, files=files, data=data, timeout=60)
                 
                 if response.status_code == 200:
                     result = response.json()
@@ -156,7 +201,7 @@ class AuphonicAPI:
                     # Retry once
                     with open(audio_path, "rb") as f2:
                         files2 = {"input_file": f2}
-                        response = requests.post(url, headers=headers, files=files2, data=data, timeout=60)
+                        response = self.session.post(url, headers=headers, files=files2, data=data, timeout=60)
                         if response.status_code == 200:
                             result = response.json()
                             return result.get("data", {}).get("uuid")
@@ -165,34 +210,43 @@ class AuphonicAPI:
                 logger.error(f"Response: {response.text[:500]}")
                 return None
                 
-            except Exception as e:
-                logger.error(f"Error creating production: {e}")
-                return None
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Network error creating production: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Error creating production: {e}")
+            return None
     
-    def _wait_for_completion(self, production_uuid: str, timeout: int = 300) -> bool:
-        """
-        Wait for production to complete.
-        Status 3 = Done (success)
-        Status 2 = Error (failure)
-        All others = Still processing
-        """
+    def _wait_for_completion_with_retry(self, production_uuid: str, timeout: int = 300) -> bool:
+        """Wait for production completion with proper failure detection"""
         url = f"{self.base_url}/production/{production_uuid}.json"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         
         start_time = time.time()
-        poll_interval = 5
+        poll_interval = 10  # Increased from 5 to reduce network load
         last_status = None
+        consecutive_failures = 0
+        max_consecutive_failures = 3  # Allow 3 consecutive failures before giving up
         
         logger.info("Waiting for production to complete...")
         
         while time.time() - start_time < timeout:
             try:
-                response = requests.get(url, headers=headers, timeout=10)
+                response = self.session.get(url, headers=headers, timeout=15)
                 
                 if response.status_code != 200:
-                    logger.warning(f"Status check failed: {response.status_code}")
+                    consecutive_failures += 1
+                    logger.warning(f"Status check failed ({consecutive_failures}/{max_consecutive_failures}): HTTP {response.status_code}")
+                    
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.error("Too many consecutive failures, marking as failed")
+                        return False
+                    
                     time.sleep(poll_interval)
                     continue
+                
+                # Success - reset failure counter
+                consecutive_failures = 0
                 
                 data = response.json().get("data", {})
                 status = data.get("status")
@@ -204,10 +258,29 @@ class AuphonicAPI:
                     logger.info(f"Status: {status} ({status_name} - {status_string})")
                     last_status = status
                 
-                # Status 3 = Done (SUCCESS!)
+                # Status 3 = Done (SUCCESS!) - but verify with multiple checks
                 if status == 3:
                     logger.info("✅ Production completed successfully")
-                    return True
+                    
+                    # Verify the production actually exists by checking for output files
+                    output_files = data.get("output_files", [])
+                    if output_files:
+                        logger.info(f"Production verified with {len(output_files)} output files")
+                        return True
+                    else:
+                        logger.warning("Status 3 but no output files found, continuing to verify...")
+                        # Give it one more chance to show output files
+                        time.sleep(5)
+                        try:
+                            verify_response = self.session.get(url, headers=headers, timeout=15)
+                            if verify_response.status_code == 200:
+                                verify_data = verify_response.json().get("data", {})
+                                verify_output_files = verify_data.get("output_files", [])
+                                if verify_output_files:
+                                    logger.info("Production verified with output files on second check")
+                                    return True
+                        except Exception as verify_e:
+                            logger.warning(f"Verification check failed: {verify_e}")
                 
                 # Status 2 = Error (FAILURE!)
                 elif status == 2:
@@ -217,36 +290,80 @@ class AuphonicAPI:
                     return False
                 
                 # All other statuses = still processing
-                # Status 0,1,4,5,6,7,8,9,10,12,14,15 = keep waiting
-                else:
-                    time.sleep(poll_interval)
-                    continue
+                time.sleep(poll_interval)
+                continue
+                
+            except requests.exceptions.ConnectionError as e:
+                consecutive_failures += 1
+                logger.warning(f"Network error checking status ({consecutive_failures}/{max_consecutive_failures}): {e}")
+                
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.error("Too many network failures, marking as failed")
+                    return False
+                
+                time.sleep(poll_interval)
+                continue
                 
             except Exception as e:
-                logger.warning(f"Error checking status: {e}")
+                consecutive_failures += 1
+                logger.warning(f"Error checking status ({consecutive_failures}/{max_consecutive_failures}): {e}")
+                
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.error("Too many errors, marking as failed")
+                    return False
+                
                 time.sleep(poll_interval)
+                continue
         
         logger.error(f"⏱️ Production timed out after {timeout}s")
         return False
     
-    def _download_output(self, production_uuid: str, output_path: Path) -> Optional[Path]:
-        """Download the enhanced audio from completed production"""
+    def _download_output_with_retry(self, production_uuid: str, output_path: Path) -> Optional[Path]:
+        """Download with enhanced retry logic for network issues"""
+        max_download_attempts = 3
+        base_delay = 10
+        
+        for attempt in range(max_download_attempts):
+            try:
+                result = self._download_single_attempt(production_uuid, output_path)
+                if result and result.exists() and result.stat().st_size > 0:
+                    return result
+                else:
+                    logger.warning(f"Download attempt {attempt + 1} produced empty/invalid file")
+                    
+            except Exception as e:
+                if "Network is unreachable" in str(e) or "ConnectionError" in str(type(e).__name__):
+                    logger.warning(f"Network error on download attempt {attempt + 1}: {e}")
+                else:
+                    logger.error(f"Download error on attempt {attempt + 1}: {e}")
+                    
+                if attempt < max_download_attempts - 1:
+                    wait_time = base_delay * (2 ** attempt)
+                    logger.info(f"Retrying download in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error("All download attempts failed")
+                    return None
+        
+        return None
+    
+    def _download_single_attempt(self, production_uuid: str, output_path: Path) -> Optional[Path]:
+        """Single download attempt"""
         url = f"{self.base_url}/production/{production_uuid}.json"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         
         try:
-            response = requests.get(url, headers=headers, timeout=30)
+            response = self.session.get(url, headers=headers, timeout=30)
             
             if response.status_code != 200:
-                logger.error(f"Failed to get production details: {response.status_code}")
-                return None
+                raise Exception(f"Failed to get production details: HTTP {response.status_code}")
             
             data = response.json().get("data", {})
             output_files = data.get("output_files", [])
             
             if not output_files:
-                logger.error("No output files in production")
-                return None
+                raise Exception("No output files in production")
             
             # Find audio file
             audio_file = None
@@ -258,22 +375,19 @@ class AuphonicAPI:
             
             if not audio_file:
                 available = [f.get("format") for f in output_files]
-                logger.error(f"No audio output found. Available: {available}")
-                return None
+                raise Exception(f"No audio output found. Available: {available}")
             
             download_url = audio_file.get("download_url")
             if not download_url:
-                logger.error("No download URL in output file")
-                return None
+                raise Exception("No download URL in output file")
             
             # Download the file
             logger.info(f"Downloading: {download_url}")
             
-            download_response = requests.get(download_url, headers=headers, timeout=300, stream=True)
+            download_response = self.session.get(download_url, headers=headers, timeout=300, stream=True)
             
             if download_response.status_code != 200:
-                logger.error(f"Download failed: {download_response.status_code}")
-                return None
+                raise Exception(f"Download failed: HTTP {download_response.status_code}")
             
             # Save to file
             with open(output_path, "wb") as f:
@@ -287,20 +401,19 @@ class AuphonicAPI:
                 logger.info(f"✅ Downloaded: {output_path} ({file_size:,} bytes)")
                 return output_path
             else:
-                logger.error("Downloaded file is empty or missing")
-                return None
+                raise Exception("Downloaded file is empty or missing")
             
         except Exception as e:
             logger.error(f"Download error: {e}")
-            return None
+            raise
     
     def _cleanup_production(self, production_uuid: str):
-        """Delete a specific production (used for failed jobs)"""
+        """Delete a specific production"""
         try:
             url = f"{self.base_url}/production/{production_uuid}.json"
             headers = {"Authorization": f"Bearer {self.api_key}"}
             
-            response = requests.delete(url, headers=headers, timeout=30)
+            response = self.session.delete(url, headers=headers, timeout=30)
             
             if response.status_code in [200, 204]:
                 logger.info(f"Cleaned up failed production: {production_uuid}")
@@ -310,22 +423,12 @@ class AuphonicAPI:
             logger.warning(f"Cleanup error: {e}")
     
     def _cleanup_unfinished(self):
-        """
-        Clean up ONLY incomplete/failed productions.
-        
-        Keeps:
-        - Status 3 (Done) - Successful jobs
-        
-        Deletes:
-        - Status 2 (Error) - Failed jobs
-        - Status 9 (Incomplete) - Incomplete jobs
-        - Status 0,1,4,5,6,7,8,10,11,12,13,14,15 - Stuck jobs older than 1 hour
-        """
+        """Clean up unfinished productions"""
         try:
             url = f"{self.base_url}/productions.json"
             headers = {"Authorization": f"Bearer {self.api_key}"}
             
-            response = requests.get(url, headers=headers, timeout=30)
+            response = self.session.get(url, headers=headers, timeout=30)
             
             if response.status_code != 200:
                 logger.warning(f"Failed to get productions list: {response.status_code}")
@@ -344,15 +447,12 @@ class AuphonicAPI:
                 should_delete = False
                 delete_reason = ""
                 
-                # Always delete errors and incomplete
                 if status == 2:
                     should_delete = True
                     delete_reason = "Error"
                 elif status == 9:
                     should_delete = True
                     delete_reason = "Incomplete"
-                
-                # Delete old processing jobs (stuck for >1 hour)
                 elif status in [0, 1, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15]:
                     created_time = prod.get("creation_time")
                     if created_time:
@@ -367,11 +467,9 @@ class AuphonicAPI:
                         except Exception as e:
                             logger.debug(f"Could not parse creation time: {e}")
                 
-                # DON'T delete status 3 (Done) - these are successful!
-                
                 if should_delete:
                     delete_url = f"{self.base_url}/production/{uuid}.json"
-                    del_response = requests.delete(delete_url, headers=headers, timeout=30)
+                    del_response = self.session.delete(delete_url, headers=headers, timeout=30)
                     
                     if del_response.status_code in [200, 204]:
                         deleted += 1
