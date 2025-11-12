@@ -64,11 +64,16 @@ def log(msg: str) -> None:
 
 
 def cleanup_job_resources(job_dir: Path) -> None:
-    """Force cleanup of all job resources with retry logic"""
+    """Clean up job resources while ALWAYS preserving completion_status.json as the single source of truth"""
     try:
         # Force garbage collection to release file handles
         import gc
         gc.collect()
+
+        # NEVER delete completion_status.json - it's the single source of truth for job status
+        completion_file = job_dir / "completion_status.json"
+        if completion_file.exists():
+            log(f"[CLEANUP] Preserving completion_status.json as single source of truth")
 
         # Remove pipeline directory with retry
         pipeline_dir = job_dir / "pipeline"
@@ -91,7 +96,7 @@ def cleanup_job_resources(job_dir: Path) -> None:
                         except Exception as force_e:
                             log(f"[WARNING] Force cleanup failed: {force_e}")
 
-        # Clean up any remaining temp files
+        # Clean up temp files (NEVER touch completion_status.json)
         cleanup_patterns = ["*.tmp", "*.temp", "*.lock", "*.pid", ".rq_job_id"]
         for pattern in cleanup_patterns:
             for f in job_dir.glob(pattern):
@@ -100,6 +105,10 @@ def cleanup_job_resources(job_dir: Path) -> None:
                     log(f"[CLEANUP] Removed temp file: {f.name}")
                 except Exception as e:
                     log(f"[WARNING] Failed to remove temp file {f.name}: {e}")
+
+        # Always preserve completion_status.json regardless of job state
+        if completion_file.exists():
+            log(f"[CLEANUP] Completion file preserved: {completion_file}")
 
     except Exception as e:
         log(f"[WARNING] Cleanup failed for {job_dir}: {e}")

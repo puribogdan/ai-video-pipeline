@@ -336,26 +336,29 @@ async def submit(
 
 @app.get("/status/{job_id}")
 async def status(job_id: str):
-    """Get job status from file-based tracking (primary) and Redis (fallback for active jobs)"""
+    """Get job status from completion_status.json - the single source of truth (always preserved)"""
     from rq.job import Job
 
-    # First, check if job directory exists
+    # Check if job directory exists
     job_dir = UPLOADS_DIR / job_id
     if not job_dir.exists():
         return {"job_id": job_id, "status": "unknown", "error": f"Job directory not found: {job_id}"}
 
-    # Check for completion file first (most reliable method)
+    # completion_status.json is ALWAYS preserved - this is the single source of truth
     completion_file = job_dir / "completion_status.json"
+    
     if completion_file.exists():
         try:
             with open(completion_file, 'r') as f:
                 completion_data = json.load(f)
+            
             # Map old state names to new ones for backward compatibility
             if completion_data.get("state") == "finished":
                 completion_data["state"] = "done"
 
             # Transform to new format
             response = {"job_id": job_id, "status": completion_data.get("state", "unknown")}
+            
             if completion_data.get("state") == "done" and completion_data.get("result"):
                 response["result_url"] = completion_data["result"].get("video_url")
                 if completion_data["result"].get("thumbnail_url"):
@@ -371,34 +374,17 @@ async def status(job_id: str):
                     response["vtt_url"] = None
             elif completion_data.get("state") == "failed":
                 response["error"] = completion_data.get("result", {}).get("error", "Unknown error")
+            
             return response
+            
         except Exception as file_error:
-            print(f"[WARNING] Failed to read completion file for job {job_id}: {file_error}", flush=True)
+            print(f"[ERROR] Failed to read completion file for job {job_id}: {file_error}", flush=True)
+            return {"job_id": job_id, "status": "unknown", "error": f"Cannot read completion file: {str(file_error)}"}
 
-    # Try to read language from completion status first, then subtitles file as fallback
-    detected_language = None
-    try:
-        # First check completion status for persisted language
-        completion_file = job_dir / "completion_status.json"
-        if completion_file.exists():
-            with open(completion_file, 'r') as f:
-                completion_data = json.load(f)
-                detected_language = completion_data.get("result", {}).get("detected_language")
-
-        # Fallback to reading from subtitles file if not in completion status
-        if not detected_language:
-            subtitles_path = job_dir / "input_subtitles.json"
-            if subtitles_path.exists():
-                with open(subtitles_path, 'r', encoding='utf-8') as f:
-                    subtitles_data = json.load(f)
-                    detected_language = subtitles_data.get("detected_language")
-    except Exception:
-        pass  # Silently ignore if files not available yet
-
-    # If no completion file, try Redis for active jobs
+    # If no completion file exists, job is still in progress - check Redis
     rq_job_id = None
 
-    # First, try to get the actual RQ job ID from the mapping file
+    # Get the actual RQ job ID from the mapping file
     rq_job_mapping = job_dir / ".rq_job_id"
     if rq_job_mapping.exists():
         try:
@@ -412,57 +398,27 @@ async def status(job_id: str):
 
     try:
         job = Job.fetch(lookup_job_id, connection=redis)
-        meta = job.meta or {}
 
         if job.is_finished:
-            # Job completed successfully - save to file for persistence
+            # Job completed successfully - this should not happen since completion file doesn't exist
+            # But handle it gracefully
             _save_job_completion(job_id, "done", job.result)
-            response = {"job_id": job_id, "status": "done", "result_url": job.result.get("video_url")}
-            if detected_language:
-                response["language"] = detected_language
-            print(f"[status] Response: {response}", flush=True)
-            return response
+            return {"job_id": job_id, "status": "done", "result_url": job.result.get("video_url")}
         elif job.is_failed:
-            # Job failed - save to file for persistence
+            # Job failed - this should not happen since completion file doesn't exist
+            # But handle it gracefully
             _save_job_completion(job_id, "failed", {"error": str(job.exc_info)[:2000]})
-            response = {"job_id": job_id, "status": "failed", "error": str(job.exc_info)[:2000], "vtt_url": None}
-            if detected_language:
-                response["language"] = detected_language
-            return response
+            return {"job_id": job_id, "status": "failed", "error": str(job.exc_info)[:2000], "vtt_url": None}
         else:
             # Job still in progress - map RQ states to desired states
             rq_state = job.get_status(refresh=True)
             mapped_state = _map_rq_state_to_custom(rq_state)
-            response = {"job_id": job_id, "status": mapped_state, "vtt_url": None}
-            if detected_language:
-                response["language"] = detected_language
-            return response
+            return {"job_id": job_id, "status": mapped_state, "vtt_url": None}
 
     except Exception as e:
-        # Job not found in Redis - this is normal for completed jobs that have been cleaned up
-        print(f"[DEBUG] Job {lookup_job_id} not found in Redis (may be completed): {str(e)}", flush=True)
-
-    # No completion file and no active job - job is likely queued or processing
-    # Check if job directory has any content (indicates job was created)
-    try:
-        dir_contents = list(job_dir.iterdir())
-        if dir_contents:
-            # Job directory exists with content - job is likely queued or processing
-            response = {"job_id": job_id, "status": "queued", "vtt_url": None}
-            if detected_language:
-                response["language"] = detected_language
-            return response
-        else:
-            # Empty job directory - job may have been cleaned up
-            response = {"job_id": job_id, "status": "unknown", "error": f"Job directory exists but is empty: {job_id}", "vtt_url": None}
-            if detected_language:
-                response["language"] = detected_language
-            return response
-    except Exception as e:
-        response = {"job_id": job_id, "status": "unknown", "error": f"Error checking job directory: {str(e)}", "vtt_url": None}
-        if detected_language:
-            response["language"] = detected_language
-        return response
+        # Job not found in Redis - likely completed or never existed
+        print(f"[DEBUG] Job {lookup_job_id} not found in Redis: {str(e)}", flush=True)
+        return {"job_id": job_id, "status": "unknown", "error": f"Job not found in Redis and no completion file: {job_id}"}
 
 
 def _map_rq_state_to_custom(rq_state: str) -> str:
