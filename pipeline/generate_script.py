@@ -224,13 +224,6 @@ Step 1: Identify natural breaks:
 - After "safe." (action complete) 
 - After "cave." (new location revealed)
 
-Step 2: Check durations:
-- 0s to 4s ("They jumped into the portal.") = 4s ❌ too short
-- 0s to 11s ("...kept them safe.") = 11s ❌ too long
-- 0s to 7s ("...surrounded them") = 7s ✓ within range
-- 7s to 18s ("...crystal cave.") = 11s ❌ too long
-- 7s to 13s ("...kept them safe.") = 6s ✓ within range
-- 13s to 18s ("...crystal cave.") = 5s ✓ within range
 
 Step 3: Final split:
 {
@@ -241,9 +234,8 @@ Step 3: Final split:
   ]
 }
 
----
+IMPORTANT ! SCENES MUST BE BETWEEN 5 AND 10 SECONDS
 
-Remember: Find the best story break WITHIN the 5-10 second timing constraint. Don't just split at exactly 8 seconds every time.
 """
 
 # ---------- LLM Provider ----------
